@@ -79,7 +79,6 @@ class FaceToCK3Tool:
         messagebox.showinfo("设置完成", "按钮位置设置完成")
         root.destroy()
     
-<<<<<<< HEAD
     def get_next_image_index(self):
         """获取下一个图片的索引号"""
         # 获取face_dir中所有的face_*.png文件
@@ -104,8 +103,6 @@ class FaceToCK3Tool:
         # 返回最大编号+1
         return max(indices) + 1
     
-=======
->>>>>>> ce405b4542287ae0b8ceeecb1e3859ea9b093fe3
     def capture_and_save(self, index):
         """截取屏幕区域并保存"""
         if not self.region:
@@ -266,12 +263,9 @@ class FaceToCK3Tool:
         slow_button.pack(side=tk.LEFT, padx=2)
     
     def run_automation(self, count=1000):
-<<<<<<< HEAD
         # 获取下一个图片索引
         start_index = self.get_next_image_index()
         
-=======
->>>>>>> ce405b4542287ae0b8ceeecb1e3859ea9b093fe3
         # 创建进度窗口
         progress_window = tk.Toplevel()
         progress_window.title("进度")
@@ -298,7 +292,6 @@ class FaceToCK3Tool:
         
         def automation_thread():
             try:
-<<<<<<< HEAD
                 for i in range(count):
                     if stop_flag.is_set():
                         break
@@ -313,19 +306,6 @@ class FaceToCK3Tool:
                     
                     # 1. 截取屏幕区域
                     filename = self.capture_and_save(current_index)
-=======
-                for i in range(1, count + 1):
-                    if stop_flag.is_set():
-                        break
-                        
-                    # 更新进度
-                    progress_var.set(i)
-                    percentage = (i / count) * 100
-                    progress_text_var.set(f"进度: {i}/{count} ({percentage:.1f}%)")
-                    
-                    # 1. 截取屏幕区域
-                    filename = self.capture_and_save(i)
->>>>>>> ce405b4542287ae0b8ceeecb1e3859ea9b093fe3
                     
                     # 2. 复制DNA内容到文件
                     self.copy_dna_to_file(filename)
@@ -337,7 +317,6 @@ class FaceToCK3Tool:
                     time.sleep(random.uniform(self.random_delay_min, self.random_delay_max))
                     
                     # 每完成10次更新一次UI
-<<<<<<< HEAD
                     if (i + 1) % 10 == 0:
                         progress_window.update()
                     
@@ -345,15 +324,6 @@ class FaceToCK3Tool:
                     if (i + 1) % 100 == 0:
                         with open(os.path.join(self.base_dir, "progress.txt"), "w") as f:
                             f.write(f"已完成: {i + 1}/{count}")
-=======
-                    if i % 10 == 0:
-                        progress_window.update()
-                    
-                    # 每完成100次保存一次进度
-                    if i % 100 == 0:
-                        with open(os.path.join(self.base_dir, "progress.txt"), "w") as f:
-                            f.write(f"已完成: {i}/{count}")
->>>>>>> ce405b4542287ae0b8ceeecb1e3859ea9b093fe3
                 
                 # 完成后显示消息
                 if not stop_flag.is_set():
