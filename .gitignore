@@ -1,7 +1,9 @@
-# 忽略 face_to_ck3_dateset 目录
-face_to_ck3_dateset/
+# 忽略 face_to_ck3 数据集目录
 face_to_ck3_dataset/
-face_to_ck3_dataset_male_small
+face_to_ck3_dataset*/
+face_to_ck3_dateset/
+face_to_ck3_dateset*/
+face_to_ck3_dataset_male_small/
 face_to_ck3_dateset - female large/
 face_to_ck3_dateset - male large/
 
