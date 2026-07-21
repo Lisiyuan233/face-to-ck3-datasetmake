@@ -28,6 +28,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+runs/
+*.pt
+*.pth
 
 # Virtual environments
 .env
@@ -48,3 +51,4 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+.venv-linux/

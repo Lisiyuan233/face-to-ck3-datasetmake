@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+from typing import Any
+
+import torch
+from torch import nn
+
+from .schema import CK3Schema
+
+
+def _build_backbone(name: str, pretrained: bool) -> tuple[nn.Module, int]:
+    try:
+        from torchvision.models import (
+            ConvNeXt_Tiny_Weights,
+            ResNet18_Weights,
+            convnext_tiny,
+            resnet18,
+        )
+    except ImportError as error:
+        raise RuntimeError(
+            "torchvision is required; install requirements-train.txt"
+        ) from error
+
+    if name == "convnext_tiny":
+        weights = ConvNeXt_Tiny_Weights.DEFAULT if pretrained else None
+        try:
+            backbone = convnext_tiny(weights=weights)
+        except Exception as error:
+            if pretrained:
+                raise RuntimeError(
+                    "unable to load ConvNeXt-Tiny pretrained weights; place the weights "
+                    "in the torch cache or set model.pretrained=false"
+                ) from error
+            raise
+        feature_dim = int(backbone.classifier[2].in_features)
+        backbone.classifier[2] = nn.Identity()
+        return backbone, feature_dim
+
+    if name == "resnet18":
+        weights = ResNet18_Weights.DEFAULT if pretrained else None
+        try:
+            backbone = resnet18(weights=weights)
+        except Exception as error:
+            if pretrained:
+                raise RuntimeError(
+                    "unable to load ResNet-18 pretrained weights; place the weights "
+                    "in the torch cache or set model.pretrained=false"
+                ) from error
+            raise
+        feature_dim = int(backbone.fc.in_features)
+        backbone.fc = nn.Identity()
+        return backbone, feature_dim
+
+    raise ValueError(f"unsupported backbone: {name}")
+
+
+class FaceToCK3Model(nn.Module):
+    def __init__(self, schema: CK3Schema, config: dict[str, Any]) -> None:
+        super().__init__()
+        self.schema = schema
+        self.dual_view = bool(config.get("dual_view", True))
+        self.backbone, feature_dim = _build_backbone(
+            str(config["backbone"]), bool(config.get("pretrained", True))
+        )
+        dropout = float(config.get("dropout", 0.1))
+        self.feature_dropout = nn.Dropout(dropout)
+        self.signed_head = nn.Linear(feature_dim, schema.signed_dim)
+        self.strength_head = nn.Linear(feature_dim, schema.categorical_dim)
+        self.color_head = nn.Linear(feature_dim, schema.color_dim)
+        self.categorical_heads = nn.ModuleDict(
+            {
+                str(index): nn.Linear(feature_dim, len(schema.categorical_fields[index].classes))
+                for index in schema.active_categorical_indices
+            }
+        )
+        self._initialize_heads()
+
+    def _initialize_heads(self) -> None:
+        modules = [self.signed_head, self.strength_head, self.color_head]
+        modules.extend(self.categorical_heads.values())
+        for module in modules:
+            nn.init.trunc_normal_(module.weight, std=0.02)
+            nn.init.zeros_(module.bias)
+
+    def encode(self, image: torch.Tensor) -> torch.Tensor:
+        features = self.backbone(image)
+        if features.ndim > 2:
+            features = torch.flatten(features, 1)
+        return self.feature_dropout(features)
+
+    def _geometry_outputs(self, features: torch.Tensor) -> dict[str, Any]:
+        return {
+            "signed": torch.tanh(self.signed_head(features)),
+            "categorical_strength": torch.sigmoid(self.strength_head(features)),
+            "categorical_logits": {
+                key: head(features) for key, head in self.categorical_heads.items()
+            },
+        }
+
+    def forward(
+        self, geometry_view: torch.Tensor, color_view: torch.Tensor | None = None
+    ) -> dict[str, Any]:
+        geometry_features = self.encode(geometry_view)
+        outputs = self._geometry_outputs(geometry_features)
+        if self.dual_view:
+            if color_view is None:
+                raise ValueError("dual-view model requires color_view")
+            color_features = self.encode(color_view)
+            outputs["signed_color_view"] = torch.tanh(
+                self.signed_head(color_features)
+            )
+            outputs["strength_color_view"] = torch.sigmoid(
+                self.strength_head(color_features)
+            )
+        else:
+            color_features = geometry_features
+        outputs["colors"] = torch.sigmoid(self.color_head(color_features))
+        return outputs
+
+    def set_backbone_trainable(self, trainable: bool) -> None:
+        for parameter in self.backbone.parameters():
+            parameter.requires_grad_(trainable)
+
+    def parameter_groups(
+        self, backbone_lr: float, head_lr: float, weight_decay: float
+    ) -> list[dict[str, Any]]:
+        backbone_ids = {id(parameter) for parameter in self.backbone.parameters()}
+        groups = {
+            "backbone_decay": [],
+            "backbone_no_decay": [],
+            "heads_decay": [],
+            "heads_no_decay": [],
+        }
+        for name, parameter in self.named_parameters():
+            family = "backbone" if id(parameter) in backbone_ids else "heads"
+            decay = not (parameter.ndim <= 1 or name.endswith(".bias"))
+            groups[f"{family}_{'decay' if decay else 'no_decay'}"].append(parameter)
+        result = []
+        for name, parameters in groups.items():
+            if not parameters:
+                continue
+            family = "backbone" if name.startswith("backbone") else "heads"
+            result.append(
+                {
+                    "params": parameters,
+                    "lr": float(backbone_lr if family == "backbone" else head_lr),
+                    "weight_decay": float(weight_decay if name.endswith("_decay") else 0.0),
+                    "name": name,
+                }
+            )
+        return result
