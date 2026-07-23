@@ -201,7 +201,7 @@ python dna_normalizer.py denormalize `
   --output predicted_dna.txt
 ```
 
-脚本只替换 schema 中的脸型、面部细节和颜色字段。模板中的性别、身体、衣服、发型、胡须和其他 CK3 内容保持不变。
+标签包含 `colors` 时脚本会替换颜色字段；几何模型的预测不包含 `colors`，此时模板原有的发色、肤色和眼色保持不变。模板中的性别、身体、衣服、发型、胡须和其他 CK3 内容同样保持不变。
 
 ## 7. 训练损失建议
 
@@ -209,16 +209,18 @@ python dna_normalizer.py denormalize `
 
 ```text
 loss = mean(SmoothL1(signed_prediction, signed_target))
-     + mean(strength_weighted_CE(category_logits, category_target))
+     + mean(strength_weighted_label_smoothed_CE(category_logits, category_target))
      + mean(SmoothL1(strength_prediction, strength_target))
-     + 0.2 * SmoothL1(color_prediction, color_target)
+     + 0.1 * dual_view_consistency
 ```
 
 模型输出约束：
 
 - `signed` 使用 `tanh`；
-- `categorical_strength` 和 `colors` 使用 `sigmoid`；
+- `categorical_strength` 使用 `sigmoid`；
 - `categorical_class` 使用每字段独立的 logits/softmax。
+
+颜色不属于模型输出，由独立程序提取或保留 DNA 模板值。
 
 验证指标至少包括：
 

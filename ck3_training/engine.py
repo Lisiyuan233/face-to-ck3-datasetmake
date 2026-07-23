@@ -37,7 +37,6 @@ def move_targets(batch: dict[str, Any], device: torch.device) -> dict[str, torch
         "signed",
         "categorical_class",
         "categorical_strength",
-        "colors",
         "race_group",
     )
     return {key: batch[key].to(device, non_blocking=True) for key in keys}
@@ -181,7 +180,7 @@ def train_one_epoch(
     for micro_step in range(micro_steps):
         batch = next(iterator)
         geometry = batch["geometry_view"].to(device, non_blocking=True)
-        color = batch["color_view"].to(device, non_blocking=True)
+        reference = batch["reference_view"].to(device, non_blocking=True)
         targets = move_targets(batch, device)
         final_micro_step = micro_step + 1 == micro_steps
         should_update = ((micro_step + 1) % accumulation_steps == 0) or final_micro_step
@@ -192,7 +191,7 @@ def train_one_epoch(
             with torch.autocast(
                 device_type=device.type, dtype=dtype, enabled=enabled
             ):
-                outputs = model(geometry, color)
+                outputs = model(geometry, reference)
                 loss, components = criterion(outputs, targets)
                 accumulation_group_start = (
                     micro_step // accumulation_steps
@@ -270,10 +269,10 @@ def evaluate(
         if max_steps is not None and step >= int(max_steps):
             break
         geometry = batch["geometry_view"].to(device, non_blocking=True)
-        color = batch["color_view"].to(device, non_blocking=True)
+        reference = batch["reference_view"].to(device, non_blocking=True)
         targets = move_targets(batch, device)
         with torch.autocast(device_type=device.type, dtype=dtype, enabled=enabled):
-            outputs = model(geometry, color)
+            outputs = model(geometry, reference)
             _, components = criterion(outputs, targets)
         metrics.update(outputs, targets, components)
     return metrics.compute()

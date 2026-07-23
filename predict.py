@@ -18,7 +18,7 @@ except ImportError as error:
 
 from ck3_training.data import DualViewTransform
 from ck3_training.model import FaceToCK3Model
-from ck3_training.schema import load_schema
+from ck3_training.schema import TARGET_FAMILY, load_schema
 from dna_normalizer import (
     apply_normalized_to_template,
     load_schema as load_raw_dna_schema,
@@ -58,6 +58,11 @@ def main() -> int:
     device = torch.device("cuda" if use_cuda else "cpu")
 
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    if checkpoint.get("schema", {}).get("target_family") != TARGET_FAMILY:
+        raise SystemExit(
+            "checkpoint uses the legacy color-prediction architecture; use a "
+            "geometry-only checkpoint"
+        )
     schema = load_schema(args.schema)
     saved_sha = checkpoint.get("schema", {}).get("schema_sha256")
     if saved_sha != schema.sha256:
@@ -85,10 +90,10 @@ def main() -> int:
         dual_view=bool(model_config["dual_view"]),
     )
     with Image.open(args.image) as source:
-        geometry, color = transform(source.convert("RGB"))
+        geometry, reference = transform(source.convert("RGB"))
     with torch.inference_mode():
         outputs = model(
-            geometry.unsqueeze(0).to(device), color.unsqueeze(0).to(device)
+            geometry.unsqueeze(0).to(device), reference.unsqueeze(0).to(device)
         )
 
     classes = [0] * schema.categorical_dim
@@ -105,7 +110,6 @@ def main() -> int:
         .float()
         .cpu()
         .tolist(),
-        "colors": outputs["colors"][0].float().cpu().tolist(),
         "categorical_confidence": confidence,
         "schema_sha256": schema.sha256,
     }

@@ -16,15 +16,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "image_height": 384,
         "image_width": 256,
         "shuffle_buffer": 2000,
+        "fraction": 1.0,
     },
     "model": {
         "backbone": "convnext_tiny",
         "pretrained": True,
         "dual_view": True,
-        "dropout": 0.1,
+        "dropout": 0.2,
     },
     "train": {
-        "output_dir": "runs/convnext_tiny_dual_view",
+        "output_dir": "runs/convnext_tiny_geometry_v1",
         "epochs": 30,
         "freeze_backbone_epochs": 2,
         "batch_size": 32,
@@ -49,11 +50,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "signed_weight": 1.0,
         "class_weight": 1.0,
         "strength_weight": 1.0,
-        "color_weight": 0.2,
-        "consistency_weight": 0.05,
+        "consistency_weight": 0.1,
+        "class_label_smoothing": 0.05,
         "minimum_class_visibility": 0.05,
         "class_weight_min": 0.5,
         "class_weight_max": 3.0,
+    },
+    "selection": {
+        "signed_mae_weight": 0.40,
+        "strength_mae_weight": 0.25,
+        "categorical_error_weight": 0.35,
     },
     "augmentation": {
         "horizontal_flip": 0.5,
@@ -63,14 +69,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "scale_max": 1.05,
         "geometry_brightness": 0.20,
         "geometry_contrast": 0.20,
-        "geometry_saturation": 0.10,
-        "geometry_grayscale": 0.35,
+        "geometry_saturation": 0.35,
+        "geometry_hue": 0.08,
+        "geometry_grayscale": 0.50,
         "blur_probability": 0.10,
         "noise_std": 0.015,
         "upper_occlusion_probability": 0.15,
-        "color_brightness": 0.08,
-        "color_contrast": 0.08,
-        "color_saturation": 0.05,
+        "reference_brightness": 0.08,
+        "reference_contrast": 0.08,
+        "reference_saturation": 0.05,
+        "reference_hue": 0.02,
     },
 }
 
@@ -128,6 +136,9 @@ def validate_config(config: dict[str, Any]) -> None:
     data = config["data"]
     train = config["train"]
     model = config["model"]
+    loss = config["loss"]
+    selection = config["selection"]
+    augmentation = config["augmentation"]
     if int(data["image_height"]) < 32 or int(data["image_width"]) < 32:
         raise ValueError("image dimensions must be at least 32 pixels")
     for key in ("epochs", "batch_size", "gradient_accumulation"):
@@ -142,3 +153,22 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("model.backbone must be resnet18 or convnext_tiny")
     if int(data["shuffle_buffer"]) < 1:
         raise ValueError("data.shuffle_buffer must be >= 1")
+    if not 0.0 < float(data["fraction"]) <= 1.0:
+        raise ValueError("data.fraction must be in (0, 1]")
+    if not 0.0 <= float(loss["class_label_smoothing"]) < 1.0:
+        raise ValueError("loss.class_label_smoothing must be in [0, 1)")
+    for key in ("signed_weight", "class_weight", "strength_weight", "consistency_weight"):
+        if float(loss[key]) < 0:
+            raise ValueError(f"loss.{key} must be >= 0")
+    selection_keys = (
+        "signed_mae_weight",
+        "strength_mae_weight",
+        "categorical_error_weight",
+    )
+    if any(float(selection[key]) < 0 for key in selection_keys):
+        raise ValueError("selection weights must be >= 0")
+    if sum(float(selection[key]) for key in selection_keys) <= 0:
+        raise ValueError("at least one selection weight must be > 0")
+    for key in ("geometry_hue", "reference_hue"):
+        if not 0.0 <= float(augmentation[key]) <= 0.5:
+            raise ValueError(f"augmentation.{key} must be in [0, 0.5]")

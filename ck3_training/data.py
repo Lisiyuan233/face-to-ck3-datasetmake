@@ -14,6 +14,7 @@ from torch.utils.data import IterableDataset, get_worker_info
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms import functional as TF
 
+from .sampling import stable_fraction_includes
 from .schema import CK3Schema
 
 
@@ -21,8 +22,14 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
-def _uniform_jitter(image: Image.Image, rng: random.Random, brightness: float,
-                    contrast: float, saturation: float) -> Image.Image:
+def _uniform_jitter(
+    image: Image.Image,
+    rng: random.Random,
+    brightness: float,
+    contrast: float,
+    saturation: float,
+    hue: float = 0.0,
+) -> Image.Image:
     operations = []
     if brightness > 0:
         operations.append(
@@ -42,6 +49,10 @@ def _uniform_jitter(image: Image.Image, rng: random.Random, brightness: float,
                 value, rng.uniform(1.0 - saturation, 1.0 + saturation)
             )
         )
+    if hue > 0:
+        operations.append(
+            lambda value: TF.adjust_hue(value, rng.uniform(-hue, hue))
+        )
     rng.shuffle(operations)
     for operation in operations:
         image = operation(image)
@@ -49,7 +60,7 @@ def _uniform_jitter(image: Image.Image, rng: random.Random, brightness: float,
 
 
 class DualViewTransform:
-    """Build geometry-robust and color-preserving views from one aligned face."""
+    """Build strong and weak appearance views of the same aligned face."""
 
     def __init__(
         self,
@@ -117,6 +128,7 @@ class DualViewTransform:
             float(self.augmentation["geometry_brightness"]),
             float(self.augmentation["geometry_contrast"]),
             float(self.augmentation["geometry_saturation"]),
+            float(self.augmentation["geometry_hue"]),
         )
         if rng.random() < float(self.augmentation["geometry_grayscale"]):
             geometry = TF.to_grayscale(geometry, num_output_channels=3)
@@ -126,12 +138,13 @@ class DualViewTransform:
                 geometry, kernel_size=[3, 3], sigma=[sigma, sigma]
             )
 
-        color = _uniform_jitter(
+        reference = _uniform_jitter(
             aligned.copy(),
             rng,
-            float(self.augmentation["color_brightness"]),
-            float(self.augmentation["color_contrast"]),
-            float(self.augmentation["color_saturation"]),
+            float(self.augmentation["reference_brightness"]),
+            float(self.augmentation["reference_contrast"]),
+            float(self.augmentation["reference_saturation"]),
+            float(self.augmentation["reference_hue"]),
         )
 
         geometry_tensor = TF.to_tensor(geometry)
@@ -154,10 +167,10 @@ class DualViewTransform:
             geometry_tensor[:, top : top + occlusion_height, left:right] = fill
 
         geometry_tensor = TF.normalize(geometry_tensor, IMAGENET_MEAN, IMAGENET_STD)
-        color_tensor = self._to_normalized_tensor(color)
+        reference_tensor = self._to_normalized_tensor(reference)
         if not self.dual_view:
-            color_tensor = geometry_tensor
-        return geometry_tensor, color_tensor
+            reference_tensor = geometry_tensor
+        return geometry_tensor, reference_tensor
 
 
 class TarShardDataset(IterableDataset):
@@ -173,6 +186,7 @@ class TarShardDataset(IterableDataset):
         repeat: bool,
         shuffle_buffer: int,
         seed: int,
+        sample_fraction: float = 1.0,
         rank: int = 0,
         world_size: int = 1,
     ) -> None:
@@ -186,6 +200,9 @@ class TarShardDataset(IterableDataset):
         self.repeat = repeat
         self.shuffle_buffer = max(1, int(shuffle_buffer))
         self.seed = int(seed)
+        self.sample_fraction = float(sample_fraction)
+        if not 0.0 < self.sample_fraction <= 1.0:
+            raise ValueError("sample_fraction must be in (0, 1]")
         self.rank = int(rank)
         self.world_size = int(world_size)
         self.epoch = 0
@@ -223,10 +240,14 @@ class TarShardDataset(IterableDataset):
                 suffix = name.suffix.lower()
                 if suffix not in {".jpg", ".jpeg", ".json"}:
                     continue
+                key = name.stem
+                if not stable_fraction_includes(
+                    key, self.sample_fraction, self.seed
+                ):
+                    continue
                 stream = archive.extractfile(member)
                 if stream is None:
                     raise RuntimeError(f"cannot extract {member.name} from {path}")
-                key = name.stem
                 parts = pending.setdefault(key, {})
                 parts["image" if suffix in {".jpg", ".jpeg"} else "json"] = stream.read()
                 if "image" not in parts or "json" not in parts:
@@ -248,11 +269,11 @@ class TarShardDataset(IterableDataset):
             self.schema.validate_label(label)
             with Image.open(io.BytesIO(raw["image_bytes"])) as decoded:
                 image = decoded.convert("RGB")
-            geometry, color = self.transform(image)
+            geometry, reference = self.transform(image)
             return {
                 "sample_id": str(label["sample_id"]),
                 "geometry_view": geometry,
-                "color_view": color,
+                "reference_view": reference,
                 "signed": torch.tensor(label["signed"], dtype=torch.float32),
                 "categorical_class": torch.tensor(
                     label["categorical_class"], dtype=torch.long
@@ -260,7 +281,6 @@ class TarShardDataset(IterableDataset):
                 "categorical_strength": torch.tensor(
                     label["categorical_strength"], dtype=torch.float32
                 ),
-                "colors": torch.tensor(label["colors"], dtype=torch.float32),
                 "race_group": torch.tensor(
                     int(label.get("race_group", -1)), dtype=torch.long
                 ),

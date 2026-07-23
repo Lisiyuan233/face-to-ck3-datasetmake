@@ -412,14 +412,15 @@ def apply_normalized_to_template(
     signed = label["signed"]
     classes = label["categorical_class"]
     strengths = label["categorical_strength"]
-    colors = label["colors"]
+    colors = label.get("colors")
 
     _expect_length("signed", signed, len(schema["signed_fields"]))
     _expect_length("categorical_class", classes, len(schema["categorical_fields"]))
     _expect_length(
         "categorical_strength", strengths, len(schema["categorical_fields"])
     )
-    _expect_length("colors", colors, 2 * len(schema["color_fields"]))
+    if colors is not None:
+        _expect_length("colors", colors, 2 * len(schema["color_fields"]))
 
     replacements: dict[str, tuple[str, int]] = {}
     for value, spec in zip(signed, schema["signed_fields"]):
@@ -460,16 +461,17 @@ def apply_normalized_to_template(
     if missing:
         raise ValueError(f"template is missing fields: {', '.join(sorted(missing))}")
 
-    for index, spec in enumerate(schema["color_fields"]):
-        key = spec["name"]
-        first = _unit_to_byte(float(colors[index * 2]))
-        second = _unit_to_byte(float(colors[index * 2 + 1]))
-        pattern = _color_re(key)
-        output, count = pattern.subn(
-            f"{key}={{ {first} {second} {first} {second} }}", output, count=1
-        )
-        if count != 1:
-            raise ValueError(f"template is missing color field: {key}")
+    if colors is not None:
+        for index, spec in enumerate(schema["color_fields"]):
+            key = spec["name"]
+            first = _unit_to_byte(float(colors[index * 2]))
+            second = _unit_to_byte(float(colors[index * 2 + 1]))
+            pattern = _color_re(key)
+            output, count = pattern.subn(
+                f"{key}={{ {first} {second} {first} {second} }}", output, count=1
+            )
+            if count != 1:
+                raise ValueError(f"template is missing color field: {key}")
 
     return output
 

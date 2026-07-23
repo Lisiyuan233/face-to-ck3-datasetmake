@@ -49,7 +49,8 @@ from ck3_training.engine import (
 from ck3_training.losses import MultitaskLoss
 from ck3_training.metrics import selection_score
 from ck3_training.model import FaceToCK3Model
-from ck3_training.schema import load_schema
+from ck3_training.sampling import evenly_spaced_fraction
+from ck3_training.schema import TARGET_FAMILY, load_schema
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,6 +70,14 @@ def parse_args() -> argparse.Namespace:
         "--device",
         choices=("auto", "cuda", "cpu"),
         default="auto",
+    )
+    parser.add_argument(
+        "--data-fraction",
+        type=float,
+        help=(
+            "use this fraction of train/validation data, for example 0.1 for "
+            "a reproducible 10%% subset"
+        ),
     )
     return parser.parse_args()
 
@@ -132,6 +141,12 @@ def load_resume(
     device: torch.device,
 ) -> dict[str, Any]:
     checkpoint = torch.load(path, map_location=device, weights_only=False)
+    saved_target_family = checkpoint.get("schema", {}).get("target_family")
+    if saved_target_family != TARGET_FAMILY:
+        raise RuntimeError(
+            "checkpoint predicts legacy color targets and cannot be resumed by the "
+            "geometry-only trainer; start a new run"
+        )
     saved_schema = checkpoint.get("schema", {}).get("schema_sha256")
     if saved_schema != schema_sha256:
         raise RuntimeError(
@@ -151,6 +166,8 @@ def main() -> int:
     args = parse_args()
     rank, world_size, local_rank, device = distributed_context(args.device)
     config = load_config(args.config)
+    if args.data_fraction is not None:
+        config["data"]["fraction"] = args.data_fraction
     if args.smoke_test:
         config = apply_smoke_overrides(config)
     validate_config(config)
@@ -177,7 +194,14 @@ def main() -> int:
     data_root = Path(data_config["root"])
     train_shards = discover_shards(data_root, "train")
     val_shards = discover_shards(data_root, "val")
-    if world_size * max(1, int(train_config["num_workers"])) > len(train_shards):
+    data_fraction = float(data_config["fraction"])
+    minimum_train_shards = world_size * max(1, int(train_config["num_workers"]))
+    train_shards = evenly_spaced_fraction(
+        train_shards,
+        data_fraction,
+        minimum=minimum_train_shards,
+    )
+    if minimum_train_shards > len(train_shards):
         raise RuntimeError(
             "world_size * num_workers exceeds the number of training shards"
         )
@@ -204,6 +228,7 @@ def main() -> int:
         repeat=True,
         shuffle_buffer=int(data_config["shuffle_buffer"]),
         seed=int(config["seed"]),
+        sample_fraction=1.0,
         rank=rank,
         world_size=world_size,
     )
@@ -225,6 +250,7 @@ def main() -> int:
             repeat=False,
             shuffle_buffer=1,
             seed=int(config["seed"]),
+            sample_fraction=data_fraction,
             rank=0,
             world_size=1,
         )
@@ -252,8 +278,10 @@ def main() -> int:
         betas=(0.9, 0.999),
     )
 
+    effective_train_count = max(1, math.ceil(counts["train"] * data_fraction))
+    expected_val_count = max(1, math.ceil(counts["val"] * data_fraction))
     micro_steps = math.ceil(
-        counts["train"]
+        effective_train_count
         / (int(train_config["batch_size"]) * max(1, world_size))
     )
     if train_config.get("max_train_steps") is not None:
@@ -313,8 +341,10 @@ def main() -> int:
             encoding="utf-8",
         )
         print(
-            f"device={device} world_size={world_size} train={counts['train']} "
-            f"val={counts['val']} micro_steps/epoch={micro_steps}",
+            f"device={device} world_size={world_size} "
+            f"data_fraction={data_fraction:.4f} "
+            f"train~={effective_train_count} val~={expected_val_count} "
+            f"train_shards={len(train_shards)} micro_steps/epoch={micro_steps}",
             flush=True,
         )
 
@@ -356,7 +386,7 @@ def main() -> int:
                     amp_mode=amp_mode,
                     max_steps=train_config.get("max_val_steps"),
                 )
-            score = selection_score(validation_metrics)
+            score = selection_score(validation_metrics, config["selection"])
             improved = score < best_score
             if improved:
                 best_score = score

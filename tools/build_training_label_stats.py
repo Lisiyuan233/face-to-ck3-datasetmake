@@ -42,7 +42,6 @@ def empty_stats(schema: CK3Schema) -> dict[str, Any]:
         "sample_count": 0,
         "signed_sum": [0.0] * schema.signed_dim,
         "strength_sum": [0.0] * schema.categorical_dim,
-        "color_sum": [0.0] * schema.color_dim,
         "class_counts": [
             [0] * len(field.classes) for field in schema.categorical_fields
         ],
@@ -51,7 +50,7 @@ def empty_stats(schema: CK3Schema) -> dict[str, Any]:
 
 def add_stats(target: dict[str, Any], source: dict[str, Any]) -> None:
     target["sample_count"] += source["sample_count"]
-    for key in ("signed_sum", "strength_sum", "color_sum"):
+    for key in ("signed_sum", "strength_sum"):
         for index, value in enumerate(source[key]):
             target[key][index] += value
     for field_index, counts in enumerate(source["class_counts"]):
@@ -75,8 +74,6 @@ def scan_shard(path: Path, schema: CK3Schema) -> dict[str, Any]:
                 stats["signed_sum"][index] += float(value)
             for index, value in enumerate(label["categorical_strength"]):
                 stats["strength_sum"][index] += float(value)
-            for index, value in enumerate(label["colors"]):
-                stats["color_sum"][index] += float(value)
             for field_index, class_id in enumerate(label["categorical_class"]):
                 stats["class_counts"][field_index][int(class_id)] += 1
     return stats
@@ -112,7 +109,6 @@ def main() -> int:
         "categorical_strength_mean": [
             value / count for value in total["strength_sum"]
         ],
-        "color_mean": [value / count for value in total["color_sum"]],
         "categorical_class_counts": total["class_counts"],
     }
     destination = args.output or args.data_root / f"{args.split}_label_stats.json"

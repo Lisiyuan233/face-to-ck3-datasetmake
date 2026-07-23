@@ -66,7 +66,6 @@ class FaceToCK3Model(nn.Module):
         self.feature_dropout = nn.Dropout(dropout)
         self.signed_head = nn.Linear(feature_dim, schema.signed_dim)
         self.strength_head = nn.Linear(feature_dim, schema.categorical_dim)
-        self.color_head = nn.Linear(feature_dim, schema.color_dim)
         self.categorical_heads = nn.ModuleDict(
             {
                 str(index): nn.Linear(feature_dim, len(schema.categorical_fields[index].classes))
@@ -76,7 +75,7 @@ class FaceToCK3Model(nn.Module):
         self._initialize_heads()
 
     def _initialize_heads(self) -> None:
-        modules = [self.signed_head, self.strength_head, self.color_head]
+        modules = [self.signed_head, self.strength_head]
         modules.extend(self.categorical_heads.values())
         for module in modules:
             nn.init.trunc_normal_(module.weight, std=0.02)
@@ -98,23 +97,15 @@ class FaceToCK3Model(nn.Module):
         }
 
     def forward(
-        self, geometry_view: torch.Tensor, color_view: torch.Tensor | None = None
+        self, geometry_view: torch.Tensor, reference_view: torch.Tensor | None = None
     ) -> dict[str, Any]:
         geometry_features = self.encode(geometry_view)
         outputs = self._geometry_outputs(geometry_features)
         if self.dual_view:
-            if color_view is None:
-                raise ValueError("dual-view model requires color_view")
-            color_features = self.encode(color_view)
-            outputs["signed_color_view"] = torch.tanh(
-                self.signed_head(color_features)
-            )
-            outputs["strength_color_view"] = torch.sigmoid(
-                self.strength_head(color_features)
-            )
-        else:
-            color_features = geometry_features
-        outputs["colors"] = torch.sigmoid(self.color_head(color_features))
+            if reference_view is None:
+                raise ValueError("dual-view model requires reference_view")
+            reference_features = self.encode(reference_view)
+            outputs["reference"] = self._geometry_outputs(reference_features)
         return outputs
 
     def set_backbone_trainable(self, trainable: bool) -> None:

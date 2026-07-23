@@ -4,10 +4,10 @@
     "backbone": "convnext_tiny",
     "pretrained": true,
     "dual_view": true,
-    "dropout": 0.1
+    "dropout": 0.2
   },
   "train": {
-    "output_dir": "runs/convnext_tiny_dual_view",
+    "output_dir": "runs/convnext_tiny_geometry_v1",
     "epochs": 30,
     "freeze_backbone_epochs": 2,
     "batch_size": 32,

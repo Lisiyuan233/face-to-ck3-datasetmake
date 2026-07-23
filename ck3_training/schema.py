@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 
+TARGET_FAMILY = "geometry_only_v1"
+
+
 @dataclass(frozen=True)
 class CategoricalField:
     name: str
@@ -25,7 +28,6 @@ class CK3Schema:
     sample_count: int
     signed_fields: tuple[str, ...]
     categorical_fields: tuple[CategoricalField, ...]
-    color_fields: tuple[str, ...]
 
     @property
     def active_categorical_indices(self) -> tuple[int, ...]:
@@ -43,16 +45,11 @@ class CK3Schema:
     def categorical_dim(self) -> int:
         return len(self.categorical_fields)
 
-    @property
-    def color_dim(self) -> int:
-        return len(self.color_fields) * 2
-
     def validate_label(self, label: dict[str, Any]) -> None:
         expected = {
             "signed": self.signed_dim,
             "categorical_class": self.categorical_dim,
             "categorical_strength": self.categorical_dim,
-            "colors": self.color_dim,
         }
         for key, length in expected.items():
             values = label.get(key)
@@ -62,9 +59,11 @@ class CK3Schema:
 
         if not all(-1.0 <= float(value) <= 1.0 for value in label["signed"]):
             raise ValueError("signed label is outside [-1, 1]")
-        for key in ("categorical_strength", "colors"):
-            if not all(0.0 <= float(value) <= 1.0 for value in label[key]):
-                raise ValueError(f"{key} label is outside [0, 1]")
+        if not all(
+            0.0 <= float(value) <= 1.0
+            for value in label["categorical_strength"]
+        ):
+            raise ValueError("categorical_strength label is outside [0, 1]")
         for index, (class_id, field) in enumerate(
             zip(label["categorical_class"], self.categorical_fields)
         ):
@@ -82,7 +81,7 @@ class CK3Schema:
                 {"name": field.name, "classes": list(field.classes)}
                 for field in self.categorical_fields
             ],
-            "color_fields": list(self.color_fields),
+            "target_family": TARGET_FAMILY,
         }
 
 
@@ -120,8 +119,7 @@ def load_schema(path: str | Path) -> CK3Schema:
         sample_count=int(data["sample_count"]),
         signed_fields=tuple(_field_name(spec) for spec in data["signed_fields"]),
         categorical_fields=tuple(categorical),
-        color_fields=tuple(_field_name(spec) for spec in data["color_fields"]),
     )
-    if schema.signed_dim == 0 or schema.categorical_dim == 0 or schema.color_dim == 0:
+    if schema.signed_dim == 0 or schema.categorical_dim == 0:
         raise ValueError("schema contains an empty target family")
     return schema

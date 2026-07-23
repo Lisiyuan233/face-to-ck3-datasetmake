@@ -39,7 +39,6 @@ class MetricAccumulator:
         self.strength_abs = torch.zeros(
             schema.categorical_dim, dtype=torch.float64, device=device
         )
-        self.color_abs = torch.zeros(schema.color_dim, dtype=torch.float64, device=device)
         self.confusion = {
             index: torch.zeros(
                 (len(schema.categorical_fields[index].classes),) * 2,
@@ -74,10 +73,8 @@ class MetricAccumulator:
         strength_error = (
             outputs["categorical_strength"] - targets["categorical_strength"]
         ).abs()
-        color_error = (outputs["colors"] - targets["colors"]).abs()
         self.signed_abs += signed_error.sum(dim=0, dtype=torch.float64)
         self.strength_abs += strength_error.sum(dim=0, dtype=torch.float64)
-        self.color_abs += color_error.sum(dim=0, dtype=torch.float64)
 
         for index in self.schema.active_categorical_indices:
             logits = outputs["categorical_logits"][str(index)]
@@ -99,11 +96,7 @@ class MetricAccumulator:
         race_group = targets["race_group"]
         valid = (race_group >= 0) & (race_group < len(self.race_abs))
         if valid.any():
-            per_sample = (
-                signed_error.mean(dim=1)
-                + strength_error.mean(dim=1)
-                + 0.2 * color_error.mean(dim=1)
-            )
+            per_sample = signed_error.mean(dim=1) + strength_error.mean(dim=1)
             self.race_abs.scatter_add_(0, race_group[valid], per_sample[valid].double())
             self.race_count.scatter_add_(
                 0,
@@ -123,7 +116,6 @@ class MetricAccumulator:
         count = self.sample_count.clamp_min(1)
         signed_fields = (self.signed_abs / count).cpu()
         strength_fields = (self.strength_abs / count).cpu()
-        color_coordinates = (self.color_abs / count).cpu()
 
         categorical = []
         accuracies = []
@@ -182,9 +174,6 @@ class MetricAccumulator:
             "strength_mae": float(strength_fields.mean().item()),
             "strength_mae_raw255": float(strength_fields.mean().item() * 255.0),
             "strength_mae_by_field": strength_fields.tolist(),
-            "color_mae": float(color_coordinates.mean().item()),
-            "color_mae_raw255": float(color_coordinates.mean().item() * 255.0),
-            "color_mae_by_coordinate": color_coordinates.tolist(),
             "categorical_accuracy": sum(accuracies) / max(1, len(accuracies)),
             "categorical_macro_f1": sum(macro_f1_values)
             / max(1, len(macro_f1_values)),
@@ -195,11 +184,19 @@ class MetricAccumulator:
         }
 
 
-def selection_score(metrics: dict[str, Any]) -> float:
+def selection_score(
+    metrics: dict[str, Any], weights: dict[str, Any] | None = None
+) -> float:
     """Lower is better; all terms are normalized validation quantities."""
+    weights = weights or {
+        "signed_mae_weight": 0.40,
+        "strength_mae_weight": 0.25,
+        "categorical_error_weight": 0.35,
+    }
+    total_weight = sum(float(value) for value in weights.values())
     return (
-        0.40 * float(metrics["signed_mae"])
-        + 0.25 * float(metrics["strength_mae"])
-        + 0.10 * float(metrics["color_mae"])
-        + 0.25 * (1.0 - float(metrics["categorical_macro_f1"]))
-    )
+        float(weights["signed_mae_weight"]) * float(metrics["signed_mae"])
+        + float(weights["strength_mae_weight"]) * float(metrics["strength_mae"])
+        + float(weights["categorical_error_weight"])
+        * (1.0 - float(metrics["categorical_macro_f1"]))
+    ) / total_weight

@@ -23,7 +23,10 @@ class SchemaAndShardTests(unittest.TestCase):
         self.assertEqual(self.schema.sample_count, 510000)
         self.assertEqual(self.schema.signed_dim, 67)
         self.assertEqual(self.schema.categorical_dim, 16)
-        self.assertEqual(self.schema.color_dim, 6)
+        self.assertEqual(
+            self.schema.checkpoint_metadata()["target_family"],
+            "geometry_only_v1",
+        )
         self.assertEqual(len(self.schema.active_categorical_indices), 10)
         self.assertEqual(
             sum(field.is_constant for field in self.schema.categorical_fields), 6
