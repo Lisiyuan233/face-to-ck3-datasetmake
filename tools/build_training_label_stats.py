@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", choices=("train", "val", "test"), default="train")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--observable-threshold", type=float, default=0.10)
     return parser.parse_args()
 
 
@@ -43,6 +44,9 @@ def empty_stats(schema: CK3Schema) -> dict[str, Any]:
         "signed_sum": [0.0] * schema.signed_dim,
         "strength_sum": [0.0] * schema.categorical_dim,
         "class_counts": [
+            [0] * len(field.classes) for field in schema.categorical_fields
+        ],
+        "observable_class_counts": [
             [0] * len(field.classes) for field in schema.categorical_fields
         ],
     }
@@ -56,9 +60,14 @@ def add_stats(target: dict[str, Any], source: dict[str, Any]) -> None:
     for field_index, counts in enumerate(source["class_counts"]):
         for class_index, value in enumerate(counts):
             target["class_counts"][field_index][class_index] += value
+    for field_index, counts in enumerate(source["observable_class_counts"]):
+        for class_index, value in enumerate(counts):
+            target["observable_class_counts"][field_index][class_index] += value
 
 
-def scan_shard(path: Path, schema: CK3Schema) -> dict[str, Any]:
+def scan_shard(
+    path: Path, schema: CK3Schema, observable_threshold: float
+) -> dict[str, Any]:
     stats = empty_stats(schema)
     with tarfile.open(path, "r:") as archive:
         for member in archive:
@@ -76,6 +85,11 @@ def scan_shard(path: Path, schema: CK3Schema) -> dict[str, Any]:
                 stats["strength_sum"][index] += float(value)
             for field_index, class_id in enumerate(label["categorical_class"]):
                 stats["class_counts"][field_index][int(class_id)] += 1
+                if (
+                    float(label["categorical_strength"][field_index])
+                    >= observable_threshold
+                ):
+                    stats["observable_class_counts"][field_index][int(class_id)] += 1
     return stats
 
 
@@ -83,6 +97,8 @@ def main() -> int:
     args = parse_args()
     if args.workers < 1:
         raise SystemExit("--workers must be >= 1")
+    if not 0.0 <= args.observable_threshold <= 1.0:
+        raise SystemExit("--observable-threshold must be in [0, 1]")
     schema = load_schema(args.schema)
     shards = sorted((args.data_root / args.split).glob(f"{args.split}-*.tar"))
     if not shards:
@@ -90,7 +106,13 @@ def main() -> int:
     total = empty_stats(schema)
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         for index, stats in enumerate(
-            executor.map(lambda path: scan_shard(path, schema), shards), start=1
+            executor.map(
+                lambda path: scan_shard(
+                    path, schema, args.observable_threshold
+                ),
+                shards,
+            ),
+            start=1,
         ):
             add_stats(total, stats)
             if index % 10 == 0 or index == len(shards):
@@ -110,6 +132,10 @@ def main() -> int:
             value / count for value in total["strength_sum"]
         ],
         "categorical_class_counts": total["class_counts"],
+        "observable_threshold": args.observable_threshold,
+        "categorical_observable_class_counts": total[
+            "observable_class_counts"
+        ],
     }
     destination = args.output or args.data_root / f"{args.split}_label_stats.json"
     destination.parent.mkdir(parents=True, exist_ok=True)

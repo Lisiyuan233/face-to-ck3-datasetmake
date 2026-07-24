@@ -1,6 +1,6 @@
-# CK3 正脸图片预处理
+# CK3 正面/侧面图片预处理
 
-本文档说明如何把 `face_to_ck3_dataset_male_small/face` 中的正面+侧面合成 PNG 转换为单正脸训练数据。配套脚本为 [`image_preprocessor.py`](image_preprocessor.py)。
+本文档说明如何把 `face_to_ck3_dataset_male_small/face` 中的正面+侧面合成 PNG 转换为严格配对的正面/纯侧脸训练数据。配套脚本为 [`image_preprocessor.py`](image_preprocessor.py)。
 
 ## 1. 抽样观察结论
 
@@ -14,11 +14,11 @@
 - 左上背景 RGB 均值约为 `(34.2, 36.5, 40.5)`，抽样变化不足 0.1；
 - 正脸区域亮度差异明显，抽样灰度均值约为 `44.5～76.0`。
 
-训练目标是单张正脸预测 DNA，因此离线数据只保留左侧正脸。右侧面不进入学生模型输入，未来可以单独用于正侧脸教师模型。
+训练模型同时使用左侧正脸和右侧 90° 侧脸。正面负责纹理、宽度和类别细节，侧脸主要补充鼻、嘴、眼、下颌等深度与轮廓信息。
 
 ## 2. 固定裁剪
 
-默认裁剪框：
+默认正面裁剪框：
 
 ```text
 left=150, top=20, right=690, bottom=830
@@ -31,6 +31,18 @@ front = image.crop((150, 20, 690, 830))
 ```
 
 裁剪结果为 `540 × 810`，恰好接近 `2:3`。缩放到 `256 × 384` 时基本不改变宽高比。
+
+默认侧脸裁剪框：
+
+```text
+left=710, top=20, right=1250, bottom=830
+```
+
+```python
+side = image.crop((710, 20, 1250, 830))
+```
+
+它同样是 `540 × 810`，覆盖后脑、耳朵、鼻尖、嘴部、下颌和颈部，并保持人物朝右；侧脸训练不做水平翻转。
 
 这个区域在抽样中能够：
 
@@ -56,9 +68,11 @@ front = image.crop((150, 20, 690, 830))
 一个分片内部类似：
 
 ```text
-face_0001.jpg
+face_0001.front.jpg
+face_0001.side.jpg
 face_0001.json
-face_0002.jpg
+face_0002.front.jpg
+face_0002.side.jpg
 face_0002.json
 ...
 ```
@@ -142,7 +156,7 @@ test  =  25,500
 ```powershell
 python image_preprocessor.py `
   face_to_ck3_dataset_male_small/face `
-  face_to_ck3_dataset_male_small/processed_preview `
+  face_to_ck3_dataset_male_small/processed_multiview_preview `
   --labels face_to_ck3_dataset_male_small/labels.jsonl `
   --limit 100 `
   --shard-size 50 `
@@ -152,7 +166,7 @@ python image_preprocessor.py `
 检查输出：
 
 ```text
-processed_preview/
+processed_multiview_preview/
   train/train-000000.tar
   val/val-000000.tar
   test/test-000000.tar
@@ -168,7 +182,7 @@ processed_preview/
 ```powershell
 python image_preprocessor.py `
   face_to_ck3_dataset_male_small/face `
-  face_to_ck3_dataset_male_small/processed_front `
+  face_to_ck3_dataset_male_small/processed_multiview `
   --labels face_to_ck3_dataset_male_small/labels.jsonl `
   --workers 4 `
   --shard-size 2000
@@ -187,12 +201,20 @@ python image_preprocessor.py `
 
 SQLite 只保存 `sample_id -> 文件偏移和长度`，标签正文仍从原始 JSONL 读取，所以不会把全部标签载入内存，也不会在数据库中复制近 1 GB 标签。
 
+每个 tar 样本包含：
+
+```text
+face_0001.front.jpg
+face_0001.side.jpg
+face_0001.json
+```
+
 如果系统盘临时空间不足，可把临时索引放到数据盘上已有的空目录：
 
 ```powershell
 python image_preprocessor.py `
   face_to_ck3_dataset_male_small/face `
-  face_to_ck3_dataset_male_small/processed_front `
+  face_to_ck3_dataset_male_small/processed_multiview `
   --labels face_to_ck3_dataset_male_small/labels.jsonl `
   --temp-dir D:/temp
 ```

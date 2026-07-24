@@ -181,6 +181,9 @@ def train_one_epoch(
         batch = next(iterator)
         geometry = batch["geometry_view"].to(device, non_blocking=True)
         reference = batch["reference_view"].to(device, non_blocking=True)
+        side = batch.get("side_view")
+        if side is not None:
+            side = side.to(device, non_blocking=True)
         targets = move_targets(batch, device)
         final_micro_step = micro_step + 1 == micro_steps
         should_update = ((micro_step + 1) % accumulation_steps == 0) or final_micro_step
@@ -191,7 +194,7 @@ def train_one_epoch(
             with torch.autocast(
                 device_type=device.type, dtype=dtype, enabled=enabled
             ):
-                outputs = model(geometry, reference)
+                outputs = model(geometry, reference, side)
                 loss, components = criterion(outputs, targets)
                 accumulation_group_start = (
                     micro_step // accumulation_steps
@@ -261,18 +264,24 @@ def evaluate(
     device: torch.device,
     amp_mode: str,
     max_steps: int | None,
+    observable_threshold: float = 0.10,
 ) -> dict[str, Any]:
     model.eval()
     enabled, dtype, _ = amp_settings(device, amp_mode)
-    metrics = MetricAccumulator(schema, device)
+    metrics = MetricAccumulator(
+        schema, device, observable_threshold=observable_threshold
+    )
     for step, batch in enumerate(loader):
         if max_steps is not None and step >= int(max_steps):
             break
         geometry = batch["geometry_view"].to(device, non_blocking=True)
         reference = batch["reference_view"].to(device, non_blocking=True)
+        side = batch.get("side_view")
+        if side is not None:
+            side = side.to(device, non_blocking=True)
         targets = move_targets(batch, device)
         with torch.autocast(device_type=device.type, dtype=dtype, enabled=enabled):
-            outputs = model(geometry, reference)
+            outputs = model(geometry, reference, side)
             _, components = criterion(outputs, targets)
         metrics.update(outputs, targets, components)
     return metrics.compute()

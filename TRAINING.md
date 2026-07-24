@@ -1,6 +1,6 @@
 # Face to CK3 训练脚本
 
-训练入口是 `train.py`。它直接读取 `processed_front/{train,val}/*.tar`，不依赖额外的 WebDataset 包。
+训练入口是 `train.py`。推荐配置读取 `processed_multiview/{train,val}/*.tar` 中严格配对的正面和纯侧脸，不依赖额外的 WebDataset 包；原 `processed_front` 配置仍可作为正面基线。
 
 ## 环境
 
@@ -18,36 +18,57 @@ python -m pip install -r requirements-train.txt
 python -m unittest tests.test_schema_and_shards -v
 ```
 
-首次训练前生成只基于 train split 的类别权重统计：
+首次训练前需生成只基于 train split、且仅统计可观察样本的类别权重；多视图命令见下文。训练入口会校验该文件的 split、样本数、可观察阈值和 schema SHA-256，避免用验证/测试分布计算损失权重。
 
-```powershell
-python tools/build_training_label_stats.py --workers 4
+安装 PyTorch 并按下文生成 `processed_multiview` 后，先跑两步冒烟训练：
+
+```bash
+python train.py \
+  --config configs/train_convnext_tiny_multiview.json \
+  --smoke-test \
+  --device cpu
 ```
 
-训练入口会校验该文件的 split、样本数和 schema SHA-256，避免用验证/测试分布计算损失权重。
-
-安装 PyTorch 后先跑两步冒烟训练：
-
-```powershell
-python train.py --config configs/train_convnext_tiny.json --smoke-test --device cpu
-```
-
-冒烟模式自动改用无预训练的 ResNet-18、`128×192` 输入、batch 2，并只执行 2 个训练 step 和 2 个验证 step。
+冒烟模式自动改用无预训练的 ResNet-18、`128×192` 输入、batch 2，并只执行 2 个训练 step 和 2 个验证 step；多视图配置仍会实际读取并融合侧脸。
 
 ## 正式单卡训练
 
-```powershell
-python train.py --config configs/train_convnext_tiny.json --device cuda
+先生成正面/侧面配对分片：
+
+```bash
+python image_preprocessor.py \
+  face_to_ck3_dataset_male_small/face \
+  face_to_ck3_dataset_male_small/processed_multiview \
+  --labels face_to_ck3_dataset_male_small/labels.jsonl \
+  --workers 4 \
+  --shard-size 2000
 ```
 
-默认配置：ConvNeXt-Tiny、ImageNet 预训练、`256×384`、强/弱增强一致性双视图、全局 batch 32、BF16、30 epoch。颜色不再作为训练目标。显存不足时优先把 `batch_size` 调小并按比例增大 `gradient_accumulation`。
+按可观察阈值重新生成训练集类别权重：
+
+```bash
+python tools/build_training_label_stats.py \
+  --data-root face_to_ck3_dataset_male_small/processed_multiview \
+  --observable-threshold 0.1 \
+  --workers 4
+```
+
+然后启动多视图训练：
+
+```bash
+python train.py \
+  --config configs/train_convnext_tiny_multiview.json \
+  --device cuda
+```
+
+多视图配置使用 ConvNeXt-Tiny、`256×384` 正面强/弱增强和一个纯侧脸，通过门控残差融合特征。micro-batch 16、梯度累积 2，保持有效 batch 32。侧脸不做水平翻转。
 
 快速验证可使用确定性的缩小数据集。例如训练和验证约 10% 数据：
 
-```powershell
-python train.py `
-  --config configs/train_convnext_tiny.json `
-  --data-fraction 0.1 `
+```bash
+python train.py \
+  --config configs/train_convnext_tiny_multiview.json \
+  --data-fraction 0.1 \
   --device cuda
 ```
 
@@ -55,10 +76,10 @@ python train.py `
 
 ## 断点恢复
 
-```powershell
-python train.py `
-  --config configs/train_convnext_tiny.json `
-  --resume runs/convnext_tiny_geometry_v1/last.pt `
+```bash
+python train.py \
+  --config configs/train_convnext_tiny_multiview.json \
+  --resume runs/convnext_tiny_multiview_v1/last.pt \
   --device cuda
 ```
 
@@ -68,9 +89,9 @@ python train.py `
 
 在支持 `torchrun` 的环境中：
 
-```powershell
-torchrun --standalone --nproc_per_node=2 train.py `
-  --config configs/train_convnext_tiny.json `
+```bash
+torchrun --standalone --nproc_per_node=2 train.py \
+  --config configs/train_convnext_tiny_multiview.json \
   --device cuda
 ```
 
@@ -78,7 +99,7 @@ torchrun --standalone --nproc_per_node=2 train.py `
 
 ## 输出
 
-默认写入 `runs/convnext_tiny_geometry_v1/`：
+多视图配置默认写入 `runs/convnext_tiny_multiview_v1/`：
 
 - `best.pt`：验证综合分数最佳 checkpoint；
 - `last.pt`：最近一个完整 epoch checkpoint；
@@ -87,19 +108,20 @@ torchrun --standalone --nproc_per_node=2 train.py `
 - `resolved_config.json`：合并默认值后的实际配置；
 - `schema_metadata.json`：字段顺序、类别词表和 schema 校验和。
 
-模型选择分数由 signed MAE、strength MAE 和 categorical macro-F1 组成，权重分别为 0.40、0.25、0.35，越低越好。6 个单类别字段不建立分类头，但仍训练其强度。
+模型选择分数由 signed MAE、strength MAE 和 `strength >= 0.1` 样本的 observable macro-F1 组成，权重分别为 0.40、0.25、0.35，越低越好。不可观察类别不参与分类 loss；6 个单类别字段不建立分类头，但仍训练其强度。
 
 ## 推理与写回 DNA
 
 输入图像必须先按训练规范对齐；当前脚本不会自动做人脸检测：
 
-```powershell
-python predict.py `
-  --checkpoint runs/convnext_tiny_geometry_v1/best.pt `
-  --image aligned_face.png `
-  --output prediction.json `
-  --template face_to_ck3_dataset_male_small/dna/face_0001.txt `
-  --dna-output predicted_dna.txt `
+```bash
+python predict.py \
+  --checkpoint runs/convnext_tiny_multiview_v1/best.pt \
+  --image aligned_front.png \
+  --side-image aligned_side.png \
+  --output prediction.json \
+  --template face_to_ck3_dataset_male_small/dna/face_0001.txt \
+  --dna-output predicted_dna.txt \
   --device cuda
 ```
 

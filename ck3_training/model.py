@@ -59,6 +59,7 @@ class FaceToCK3Model(nn.Module):
         super().__init__()
         self.schema = schema
         self.dual_view = bool(config.get("dual_view", True))
+        self.use_side_view = bool(config.get("side_view", False))
         self.backbone, feature_dim = _build_backbone(
             str(config["backbone"]), bool(config.get("pretrained", True))
         )
@@ -72,14 +73,22 @@ class FaceToCK3Model(nn.Module):
                 for index in schema.active_categorical_indices
             }
         )
+        if self.use_side_view:
+            self.side_projection = nn.Linear(feature_dim, feature_dim)
+            self.side_gate = nn.Linear(feature_dim * 2, feature_dim)
+            self.fusion_norm = nn.LayerNorm(feature_dim)
         self._initialize_heads()
 
     def _initialize_heads(self) -> None:
         modules = [self.signed_head, self.strength_head]
         modules.extend(self.categorical_heads.values())
+        if self.use_side_view:
+            modules.extend([self.side_projection, self.side_gate])
         for module in modules:
             nn.init.trunc_normal_(module.weight, std=0.02)
             nn.init.zeros_(module.bias)
+        if self.use_side_view:
+            nn.init.constant_(self.side_gate.bias, -1.0)
 
     def encode(self, image: torch.Tensor) -> torch.Tensor:
         features = self.backbone(image)
@@ -96,15 +105,39 @@ class FaceToCK3Model(nn.Module):
             },
         }
 
+    def _fuse_views(
+        self, front_features: torch.Tensor, side_features: torch.Tensor
+    ) -> torch.Tensor:
+        gate = torch.sigmoid(
+            self.side_gate(torch.cat((front_features, side_features), dim=1))
+        )
+        side_delta = self.side_projection(side_features)
+        return self.fusion_norm(front_features + gate * side_delta)
+
     def forward(
-        self, geometry_view: torch.Tensor, reference_view: torch.Tensor | None = None
+        self,
+        geometry_view: torch.Tensor,
+        reference_view: torch.Tensor | None = None,
+        side_view: torch.Tensor | None = None,
     ) -> dict[str, Any]:
         geometry_features = self.encode(geometry_view)
+        side_features = None
+        if self.use_side_view:
+            if side_view is None:
+                raise ValueError("multi-view model requires side_view")
+            side_features = self.encode(side_view)
+            geometry_features = self._fuse_views(
+                geometry_features, side_features
+            )
         outputs = self._geometry_outputs(geometry_features)
         if self.dual_view:
             if reference_view is None:
                 raise ValueError("dual-view model requires reference_view")
             reference_features = self.encode(reference_view)
+            if side_features is not None:
+                reference_features = self._fuse_views(
+                    reference_features, side_features
+                )
             outputs["reference"] = self._geometry_outputs(reference_features)
         return outputs
 

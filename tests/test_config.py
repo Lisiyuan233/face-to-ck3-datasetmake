@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import copy
 import unittest
+from pathlib import Path
 
 from ck3_training.config import (
     DEFAULT_CONFIG,
     apply_smoke_overrides,
+    load_config,
     validate_config,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class ConfigTests(unittest.TestCase):
@@ -36,6 +40,15 @@ class ConfigTests(unittest.TestCase):
         config["data"]["fraction"] = 0.0
         with self.assertRaisesRegex(ValueError, "data.fraction"):
             validate_config(config)
+
+    def test_multiview_config_is_valid(self) -> None:
+        config = load_config(ROOT / "configs" / "train_convnext_tiny_multiview.json")
+        validate_config(config)
+        self.assertTrue(config["model"]["side_view"])
+        self.assertEqual(config["train"]["batch_size"], 16)
+        self.assertEqual(config["train"]["gradient_accumulation"], 2)
+        smoke = apply_smoke_overrides(config)
+        self.assertTrue(smoke["model"]["side_view"])
 
 
 if __name__ == "__main__":

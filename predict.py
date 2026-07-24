@@ -32,6 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--image", required=True, type=Path)
     parser.add_argument(
+        "--side-image",
+        type=Path,
+        help="aligned right-profile image required by multi-view checkpoints",
+    )
+    parser.add_argument(
         "--schema",
         default=Path("face_to_ck3_dataset_male_small/dna_schema.json"),
         type=Path,
@@ -71,6 +76,8 @@ def main() -> int:
         )
     config = checkpoint["config"]
     model_config = dict(config["model"])
+    if bool(model_config.get("side_view", False)) and args.side_image is None:
+        raise SystemExit("--side-image is required by this multi-view checkpoint")
     model_config["pretrained"] = False
     model = FaceToCK3Model(schema, model_config).to(device)
     model.load_state_dict(checkpoint["model"], strict=True)
@@ -91,9 +98,17 @@ def main() -> int:
     )
     with Image.open(args.image) as source:
         geometry, reference = transform(source.convert("RGB"))
+    side = None
+    if args.side_image:
+        with Image.open(args.side_image) as source:
+            side, _ = transform(
+                source.convert("RGB"), allow_horizontal_flip=False
+            )
     with torch.inference_mode():
         outputs = model(
-            geometry.unsqueeze(0).to(device), reference.unsqueeze(0).to(device)
+            geometry.unsqueeze(0).to(device),
+            reference.unsqueeze(0).to(device),
+            side.unsqueeze(0).to(device) if side is not None else None,
         )
 
     classes = [0] * schema.categorical_dim

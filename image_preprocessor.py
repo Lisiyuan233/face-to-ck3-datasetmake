@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preprocess the CK3 composite portraits into front-face WebDataset shards.
+"""Preprocess CK3 composite portraits into paired front/side WebDataset shards.
 
 The script is intentionally deterministic. It crops and resizes the collected
 PNG files, encodes them as JPEG, joins normalized JSONL labels by sample_id, and
@@ -29,9 +29,10 @@ from typing import Any, Iterator, Sequence
 from PIL import Image, ImageOps
 
 
-SCRIPT_VERSION = 1
+SCRIPT_VERSION = 2
 IMAGE_NAME_RE = re.compile(r"^face_(\d+)\.png$", re.IGNORECASE)
 DEFAULT_CROP = (150, 20, 690, 830)
+DEFAULT_SIDE_CROP = (710, 20, 1250, 830)
 DEFAULT_OUTPUT_SIZE = (256, 384)
 DEFAULT_EXPECTED_SIZE = (1326, 891)
 SPLIT_NAMES = ("train", "val", "test")
@@ -41,7 +42,8 @@ SPLIT_NAMES = ("train", "val", "test")
 class ImageTask:
     path: str
     sample_id: str
-    crop: tuple[int, int, int, int]
+    front_crop: tuple[int, int, int, int]
+    side_crop: tuple[int, int, int, int]
     output_size: tuple[int, int]
     expected_size: tuple[int, int]
     allow_size_mismatch: bool
@@ -52,7 +54,8 @@ class ImageTask:
 @dataclass(frozen=True)
 class ProcessedImage:
     sample_id: str
-    jpeg: bytes | None
+    front_jpeg: bytes | None
+    side_jpeg: bytes | None
     source_size: tuple[int, int] | None
     error: str | None = None
 
@@ -198,7 +201,7 @@ def attach_sample_metadata(
 
 
 def process_image(task: ImageTask) -> ProcessedImage:
-    """Worker-safe image decode, validation, crop, resize and JPEG encode."""
+    """Worker-safe image decode, paired crop, resize and JPEG encode."""
     try:
         with Image.open(task.path) as source:
             source = ImageOps.exif_transpose(source)
@@ -207,31 +210,40 @@ def process_image(task: ImageTask) -> ProcessedImage:
                 raise ValueError(
                     f"expected {task.expected_size}, got {source_size}"
                 )
-            left, top, right, bottom = task.crop
-            if right > source.width or bottom > source.height:
-                raise ValueError(
-                    f"crop {task.crop} exceeds image size {source_size}"
+            converted = source.convert("RGB")
+
+            def encode(crop: tuple[int, int, int, int]) -> bytes:
+                left, top, right, bottom = crop
+                if right > source.width or bottom > source.height:
+                    raise ValueError(
+                        f"crop {crop} exceeds image size {source_size}"
+                    )
+                image = converted.crop(crop)
+                image = image.resize(task.output_size, Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                image.save(
+                    output,
+                    format="JPEG",
+                    quality=task.jpeg_quality,
+                    subsampling=task.jpeg_subsampling,
+                    optimize=False,
+                    progressive=False,
                 )
-            image = source.convert("RGB").crop(task.crop)
-            image = image.resize(task.output_size, Image.Resampling.LANCZOS)
-            output = io.BytesIO()
-            image.save(
-                output,
-                format="JPEG",
-                quality=task.jpeg_quality,
-                subsampling=task.jpeg_subsampling,
-                optimize=False,
-                progressive=False,
-            )
+                return output.getvalue()
+
+            front_jpeg = encode(task.front_crop)
+            side_jpeg = encode(task.side_crop)
         return ProcessedImage(
             sample_id=task.sample_id,
-            jpeg=output.getvalue(),
+            front_jpeg=front_jpeg,
+            side_jpeg=side_jpeg,
             source_size=source_size,
         )
     except Exception as error:
         return ProcessedImage(
             sample_id=task.sample_id,
-            jpeg=None,
+            front_jpeg=None,
+            side_jpeg=None,
             source_size=None,
             error=f"{task.path}: {error}",
         )
@@ -361,11 +373,18 @@ class TarShardWriter:
         self._tar = tarfile.open(self._partial_path, mode="w", format=tarfile.PAX_FORMAT)
         self.current_count = 0
 
-    def add(self, sample_id: str, jpeg: bytes, label: bytes | None) -> None:
+    def add(
+        self,
+        sample_id: str,
+        front_jpeg: bytes,
+        side_jpeg: bytes,
+        label: bytes | None,
+    ) -> None:
         if self._tar is None:
             self._open()
         assert self._tar is not None
-        self._add_bytes(f"{sample_id}.jpg", jpeg)
+        self._add_bytes(f"{sample_id}.front.jpg", front_jpeg)
+        self._add_bytes(f"{sample_id}.side.jpg", side_jpeg)
         if label is not None:
             self._add_bytes(f"{sample_id}.json", label)
         self.current_count += 1
@@ -431,7 +450,8 @@ def build_task(path: Path, args: argparse.Namespace) -> ImageTask:
     return ImageTask(
         path=str(path),
         sample_id=path.stem,
-        crop=args.crop,
+        front_crop=args.crop,
+        side_crop=args.side_crop,
         output_size=args.size,
         expected_size=args.expected_size,
         allow_size_mismatch=args.allow_size_mismatch,
@@ -484,7 +504,11 @@ def process_dataset(args: argparse.Namespace) -> dict[str, Any]:
                     try:
                         if result.error is not None:
                             raise ValueError(result.error)
-                        assert result.jpeg is not None and result.source_size is not None
+                        assert (
+                            result.front_jpeg is not None
+                            and result.side_jpeg is not None
+                            and result.source_size is not None
+                        )
                         label = labels.get(result.sample_id)
                         if args.labels and label is None:
                             raise ValueError(
@@ -501,7 +525,12 @@ def process_dataset(args: argparse.Namespace) -> dict[str, Any]:
                         metadata = attach_sample_metadata(
                             result.sample_id, label, args.race_group_size
                         )
-                        writers[split].add(result.sample_id, result.jpeg, metadata)
+                        writers[split].add(
+                            result.sample_id,
+                            result.front_jpeg,
+                            result.side_jpeg,
+                            metadata,
+                        )
                         split_counts[split] += 1
                         if args.race_group_size:
                             group, _ = race_position(
@@ -546,7 +575,10 @@ def process_dataset(args: argparse.Namespace) -> dict[str, Any]:
         "skipped": len(skipped),
         "excluded_pngs": excluded_pngs,
         "source_sizes": [list(size) for size in sorted(source_sizes)],
-        "crop": list(args.crop),
+        "crops": {
+            "front": list(args.crop),
+            "side": list(args.side_crop),
+        },
         "output_size": list(args.size),
         "jpeg": {
             "quality": args.jpeg_quality,
@@ -606,14 +638,25 @@ class _NullLabelIndex:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Crop CK3 composite PNG portraits into front-face JPEG WebDataset shards."
+            "Crop CK3 composite PNG portraits into paired front/side JPEG shards."
         )
     )
     parser.add_argument("input_dir", type=Path, help="directory containing face_*.png")
     parser.add_argument("output_dir", type=Path, help="new, empty output directory")
     parser.add_argument("--labels", type=Path, help="normalized labels.jsonl")
     parser.add_argument(
-        "--crop", type=parse_crop, default=DEFAULT_CROP, metavar="L,T,R,B"
+        "--crop",
+        type=parse_crop,
+        default=DEFAULT_CROP,
+        metavar="L,T,R,B",
+        help="front-face crop",
+    )
+    parser.add_argument(
+        "--side-crop",
+        type=parse_crop,
+        default=DEFAULT_SIDE_CROP,
+        metavar="L,T,R,B",
+        help="right-profile crop",
     )
     parser.add_argument(
         "--size", type=parse_size, default=DEFAULT_OUTPUT_SIZE, metavar="W,H"
@@ -662,12 +705,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    left, top, right, bottom = args.crop
     expected_width, expected_height = args.expected_size
-    if not args.allow_size_mismatch and (
-        right > expected_width or bottom > expected_height
-    ):
-        parser.error("crop exceeds --expected-size")
+    for name, crop in (("crop", args.crop), ("side-crop", args.side_crop)):
+        _, _, right, bottom = crop
+        if not args.allow_size_mismatch and (
+            right > expected_width or bottom > expected_height
+        ):
+            parser.error(f"--{name} exceeds --expected-size")
     if not 1 <= args.jpeg_quality <= 100:
         parser.error("--jpeg-quality must be between 1 and 100")
     if args.shard_size < 1:

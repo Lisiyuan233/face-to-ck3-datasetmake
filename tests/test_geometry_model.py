@@ -54,7 +54,52 @@ class GeometryModelTests(unittest.TestCase):
         loss, components = criterion(outputs, targets)
         self.assertTrue(torch.isfinite(loss))
         self.assertNotIn("color", components)
-        self.assertGreaterEqual(float(components["consistency"]), 0.0)
+        self.assertGreaterEqual(
+            float(components["consistency"].detach()), 0.0
+        )
+
+    def test_class_loss_is_normalized_over_observable_samples(self) -> None:
+        from ck3_training.losses import MultitaskLoss
+
+        value = MultitaskLoss._observable_weighted_mean(
+            torch.tensor([2.0, 100.0]),
+            torch.tensor([0.5, 0.0]),
+            torch.tensor([True, False]),
+        )
+        self.assertAlmostEqual(float(value), 2.0)
+
+    def test_side_view_uses_gated_fusion(self) -> None:
+        from ck3_training.config import DEFAULT_CONFIG, apply_smoke_overrides
+        from ck3_training.model import FaceToCK3Model
+        from ck3_training.schema import load_schema
+
+        schema = load_schema(DATASET / "dna_schema.json")
+        config = apply_smoke_overrides(DEFAULT_CONFIG)
+        config["model"]["side_view"] = True
+        model = FaceToCK3Model(schema, config["model"])
+        image = torch.rand(2, 3, 64, 64)
+        outputs = model(image, image, image)
+        self.assertEqual(outputs["signed"].shape, (2, schema.signed_dim))
+        self.assertTrue(hasattr(model, "side_gate"))
+
+    def test_selection_score_uses_observable_macro_f1(self) -> None:
+        from ck3_training.metrics import selection_score
+
+        metrics = {
+            "signed_mae": 0.2,
+            "strength_mae": 0.1,
+            "categorical_macro_f1": 0.1,
+            "categorical_observable_macro_f1": 0.8,
+        }
+        score = selection_score(
+            metrics,
+            {
+                "signed_mae_weight": 0.0,
+                "strength_mae_weight": 0.0,
+                "categorical_error_weight": 1.0,
+            },
+        )
+        self.assertAlmostEqual(score, 0.2)
 
 
 if __name__ == "__main__":

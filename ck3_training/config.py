@@ -22,6 +22,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "backbone": "convnext_tiny",
         "pretrained": True,
         "dual_view": True,
+        "side_view": False,
         "dropout": 0.2,
     },
     "train": {
@@ -52,9 +53,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "strength_weight": 1.0,
         "consistency_weight": 0.1,
         "class_label_smoothing": 0.05,
-        "minimum_class_visibility": 0.05,
+        "class_visibility_threshold": 0.10,
+        "reference_only_categorical_fields": [
+            "face_detail_eye_socket"
+        ],
+        "consistency_excluded_categorical_fields": [
+            "face_detail_eye_socket"
+        ],
         "class_weight_min": 0.5,
-        "class_weight_max": 3.0,
+        "class_weight_max": 2.0,
     },
     "selection": {
         "signed_mae_weight": 0.40,
@@ -107,7 +114,11 @@ def save_config(config: dict[str, Any], path: str | Path) -> None:
 def apply_smoke_overrides(config: dict[str, Any]) -> dict[str, Any]:
     config = copy.deepcopy(config)
     config["model"].update(
-        {"backbone": "resnet18", "pretrained": False, "dual_view": False}
+        {
+            "backbone": "resnet18",
+            "pretrained": False,
+            "dual_view": False,
+        }
     )
     config["data"].update(
         {"image_height": 192, "image_width": 128, "shuffle_buffer": 64}
@@ -151,12 +162,16 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("train.amp must be off, fp16, or bf16")
     if str(model["backbone"]) not in {"resnet18", "convnext_tiny"}:
         raise ValueError("model.backbone must be resnet18 or convnext_tiny")
+    if not isinstance(model.get("side_view"), bool):
+        raise ValueError("model.side_view must be a boolean")
     if int(data["shuffle_buffer"]) < 1:
         raise ValueError("data.shuffle_buffer must be >= 1")
     if not 0.0 < float(data["fraction"]) <= 1.0:
         raise ValueError("data.fraction must be in (0, 1]")
     if not 0.0 <= float(loss["class_label_smoothing"]) < 1.0:
         raise ValueError("loss.class_label_smoothing must be in [0, 1)")
+    if not 0.0 <= float(loss["class_visibility_threshold"]) <= 1.0:
+        raise ValueError("loss.class_visibility_threshold must be in [0, 1]")
     for key in ("signed_weight", "class_weight", "strength_weight", "consistency_weight"):
         if float(loss[key]) < 0:
             raise ValueError(f"loss.{key} must be >= 0")

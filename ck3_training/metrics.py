@@ -47,13 +47,9 @@ class MetricAccumulator:
             )
             for index in schema.active_categorical_indices
         }
-        self.observable_correct = {
-            index: torch.zeros((), dtype=torch.float64, device=device)
-            for index in schema.active_categorical_indices
-        }
-        self.observable_count = {
-            index: torch.zeros((), dtype=torch.float64, device=device)
-            for index in schema.active_categorical_indices
+        self.observable_confusion = {
+            index: torch.zeros_like(matrix)
+            for index, matrix in self.confusion.items()
         }
         self.race_abs = torch.zeros(17, dtype=torch.float64, device=device)
         self.race_count = torch.zeros(17, dtype=torch.float64, device=device)
@@ -88,10 +84,17 @@ class MetricAccumulator:
                 targets["categorical_strength"][:, index]
                 >= self.observable_threshold
             )
-            self.observable_correct[index] += (
-                prediction[observable] == target[observable]
-            ).sum()
-            self.observable_count[index] += observable.sum()
+            if observable.any():
+                observable_flattened = (
+                    target[observable] * class_count + prediction[observable]
+                )
+                observable_counts = torch.bincount(
+                    observable_flattened,
+                    minlength=class_count * class_count,
+                )
+                self.observable_confusion[index] += observable_counts.reshape(
+                    class_count, class_count
+                )
 
         race_group = targets["race_group"]
         valid = (race_group >= 0) & (race_group < len(self.race_abs))
@@ -121,17 +124,21 @@ class MetricAccumulator:
         accuracies = []
         macro_f1_values = []
         observable_accuracies = []
+        observable_macro_f1_values = []
         for index in self.schema.active_categorical_indices:
             matrix = self.confusion[index]
+            observable_matrix = self.observable_confusion[index]
             accuracy = float(
                 _safe_divide(matrix.diag().sum(), matrix.sum()).item()
             )
             macro_f1 = _macro_f1(matrix)
             observable_accuracy = float(
                 _safe_divide(
-                    self.observable_correct[index], self.observable_count[index]
+                    observable_matrix.diag().sum(),
+                    observable_matrix.sum(),
                 ).item()
             )
+            observable_macro_f1 = _macro_f1(observable_matrix)
             categorical.append(
                 {
                     "index": index,
@@ -139,13 +146,16 @@ class MetricAccumulator:
                     "accuracy": accuracy,
                     "macro_f1": macro_f1,
                     "observable_accuracy": observable_accuracy,
-                    "observable_count": int(self.observable_count[index].item()),
+                    "observable_macro_f1": observable_macro_f1,
+                    "observable_count": int(observable_matrix.sum().item()),
                     "confusion_matrix": matrix.cpu().tolist(),
+                    "observable_confusion_matrix": observable_matrix.cpu().tolist(),
                 }
             )
             accuracies.append(accuracy)
             macro_f1_values.append(macro_f1)
             observable_accuracies.append(observable_accuracy)
+            observable_macro_f1_values.append(observable_macro_f1)
 
         race_groups = []
         for index in range(len(self.race_abs)):
@@ -179,6 +189,8 @@ class MetricAccumulator:
             / max(1, len(macro_f1_values)),
             "categorical_observable_accuracy": sum(observable_accuracies)
             / max(1, len(observable_accuracies)),
+            "categorical_observable_macro_f1": sum(observable_macro_f1_values)
+            / max(1, len(observable_macro_f1_values)),
             "categorical_fields": categorical,
             "race_groups": race_groups,
         }
@@ -194,9 +206,15 @@ def selection_score(
         "categorical_error_weight": 0.35,
     }
     total_weight = sum(float(value) for value in weights.values())
+    categorical_f1 = float(
+        metrics.get(
+            "categorical_observable_macro_f1",
+            metrics["categorical_macro_f1"],
+        )
+    )
     return (
         float(weights["signed_mae_weight"]) * float(metrics["signed_mae"])
         + float(weights["strength_mae_weight"]) * float(metrics["strength_mae"])
         + float(weights["categorical_error_weight"])
-        * (1.0 - float(metrics["categorical_macro_f1"]))
+        * (1.0 - categorical_f1)
     ) / total_weight

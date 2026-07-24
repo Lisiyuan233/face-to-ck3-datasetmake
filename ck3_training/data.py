@@ -76,7 +76,12 @@ class DualViewTransform:
         self.training = training
         self.dual_view = dual_view
 
-    def _geometry(self, image: Image.Image, rng: random.Random) -> Image.Image:
+    def _geometry(
+        self,
+        image: Image.Image,
+        rng: random.Random,
+        allow_horizontal_flip: bool,
+    ) -> Image.Image:
         image = TF.resize(
             image,
             [self.height, self.width],
@@ -86,7 +91,10 @@ class DualViewTransform:
         if not self.training:
             return image
 
-        if rng.random() < float(self.augmentation["horizontal_flip"]):
+        if (
+            allow_horizontal_flip
+            and rng.random() < float(self.augmentation["horizontal_flip"])
+        ):
             image = TF.hflip(image)
         angle = rng.uniform(
             -float(self.augmentation["rotation_degrees"]),
@@ -115,9 +123,11 @@ class DualViewTransform:
         tensor = TF.to_tensor(image)
         return TF.normalize(tensor, IMAGENET_MEAN, IMAGENET_STD)
 
-    def __call__(self, image: Image.Image) -> tuple[torch.Tensor, torch.Tensor]:
+    def __call__(
+        self, image: Image.Image, *, allow_horizontal_flip: bool = True
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         rng = random
-        aligned = self._geometry(image, rng)
+        aligned = self._geometry(image, rng, allow_horizontal_flip)
         if not self.training:
             tensor = self._to_normalized_tensor(aligned)
             return tensor, tensor
@@ -187,6 +197,7 @@ class TarShardDataset(IterableDataset):
         shuffle_buffer: int,
         seed: int,
         sample_fraction: float = 1.0,
+        require_side_view: bool = False,
         rank: int = 0,
         world_size: int = 1,
     ) -> None:
@@ -203,6 +214,7 @@ class TarShardDataset(IterableDataset):
         self.sample_fraction = float(sample_fraction)
         if not 0.0 < self.sample_fraction <= 1.0:
             raise ValueError("sample_fraction must be in (0, 1]")
+        self.require_side_view = bool(require_side_view)
         self.rank = int(rank)
         self.world_size = int(world_size)
         self.epoch = 0
@@ -237,10 +249,28 @@ class TarShardDataset(IterableDataset):
                 if not member.isfile():
                     continue
                 name = Path(member.name)
-                suffix = name.suffix.lower()
-                if suffix not in {".jpg", ".jpeg", ".json"}:
+                filename = name.name
+                lower = filename.lower()
+                if lower.endswith(".front.jpg"):
+                    key = filename[: -len(".front.jpg")]
+                    part = "front_image"
+                elif lower.endswith(".front.jpeg"):
+                    key = filename[: -len(".front.jpeg")]
+                    part = "front_image"
+                elif lower.endswith(".side.jpg"):
+                    key = filename[: -len(".side.jpg")]
+                    part = "side_image"
+                elif lower.endswith(".side.jpeg"):
+                    key = filename[: -len(".side.jpeg")]
+                    part = "side_image"
+                elif lower.endswith((".jpg", ".jpeg")):
+                    key = name.stem
+                    part = "front_image"
+                elif lower.endswith(".json"):
+                    key = name.stem
+                    part = "json"
+                else:
                     continue
-                key = name.stem
                 if not stable_fraction_includes(
                     key, self.sample_fraction, self.seed
                 ):
@@ -249,13 +279,17 @@ class TarShardDataset(IterableDataset):
                 if stream is None:
                     raise RuntimeError(f"cannot extract {member.name} from {path}")
                 parts = pending.setdefault(key, {})
-                parts["image" if suffix in {".jpg", ".jpeg"} else "json"] = stream.read()
-                if "image" not in parts or "json" not in parts:
+                parts[part] = stream.read()
+                required = {"front_image", "json"}
+                if self.require_side_view:
+                    required.add("side_image")
+                if not required.issubset(parts):
                     continue
                 yield {
                     "key": key,
                     "source": str(path),
-                    "image_bytes": parts["image"],
+                    "front_image_bytes": parts["front_image"],
+                    "side_image_bytes": parts.get("side_image"),
                     "json_bytes": parts["json"],
                 }
                 pending.pop(key, None)
@@ -267,10 +301,10 @@ class TarShardDataset(IterableDataset):
         try:
             label = json.loads(raw["json_bytes"].decode("utf-8"))
             self.schema.validate_label(label)
-            with Image.open(io.BytesIO(raw["image_bytes"])) as decoded:
-                image = decoded.convert("RGB")
-            geometry, reference = self.transform(image)
-            return {
+            with Image.open(io.BytesIO(raw["front_image_bytes"])) as decoded:
+                front_image = decoded.convert("RGB")
+            geometry, reference = self.transform(front_image)
+            sample = {
                 "sample_id": str(label["sample_id"]),
                 "geometry_view": geometry,
                 "reference_view": reference,
@@ -285,6 +319,14 @@ class TarShardDataset(IterableDataset):
                     int(label.get("race_group", -1)), dtype=torch.long
                 ),
             }
+            if raw["side_image_bytes"] is not None:
+                with Image.open(io.BytesIO(raw["side_image_bytes"])) as decoded:
+                    side_image = decoded.convert("RGB")
+                side, _ = self.transform(
+                    side_image, allow_horizontal_flip=False
+                )
+                sample["side_view"] = side
+            return sample
         except Exception as error:
             raise RuntimeError(
                 f"invalid sample {raw['key']} in {raw['source']}: {error}"

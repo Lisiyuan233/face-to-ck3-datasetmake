@@ -33,7 +33,6 @@ from ck3_training.data import (
     DualViewTransform,
     TarShardDataset,
     discover_shards,
-    manifest_counts,
 )
 from ck3_training.engine import (
     ExponentialMovingAverage,
@@ -147,6 +146,15 @@ def load_resume(
             "checkpoint predicts legacy color targets and cannot be resumed by the "
             "geometry-only trainer; start a new run"
         )
+    saved_side_view = bool(
+        checkpoint.get("config", {}).get("model", {}).get("side_view", False)
+    )
+    current_side_view = bool(getattr(model, "use_side_view", False))
+    if saved_side_view != current_side_view:
+        raise RuntimeError(
+            "checkpoint side-view architecture does not match the current config; "
+            "start a new run"
+        )
     saved_schema = checkpoint.get("schema", {}).get("schema_sha256")
     if saved_schema != schema_sha256:
         raise RuntimeError(
@@ -178,7 +186,18 @@ def main() -> int:
     data_config = config["data"]
     train_config = config["train"]
     schema = load_schema(data_config["schema"])
-    counts = manifest_counts(data_config["manifest"])
+    manifest_path = Path(data_config["manifest"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    counts = {
+        key: int(value)
+        for key, value in manifest["split"]["counts"].items()
+    }
+    use_side_view = bool(config["model"].get("side_view", False))
+    if use_side_view and "side" not in manifest.get("crops", {}):
+        raise RuntimeError(
+            "model.side_view=true requires a paired front/side dataset; "
+            "regenerate shards with image_preprocessor.py v2"
+        )
     stats_path = Path(data_config["train_label_stats"])
     if not stats_path.is_file():
         raise RuntimeError(
@@ -191,6 +210,20 @@ def main() -> int:
         raise RuntimeError("train label statistics use a different schema")
     if int(label_stats.get("sample_count", -1)) != counts["train"]:
         raise RuntimeError("train label statistics sample count does not match manifest")
+    observable_class_counts = label_stats.get(
+        "categorical_observable_class_counts"
+    )
+    if observable_class_counts is not None:
+        stats_threshold = float(label_stats.get("observable_threshold", -1.0))
+        configured_threshold = float(
+            config["loss"]["class_visibility_threshold"]
+        )
+        if abs(stats_threshold - configured_threshold) > 1e-9:
+            raise RuntimeError(
+                "train label statistics observable threshold does not match config"
+            )
+    else:
+        observable_class_counts = label_stats["categorical_class_counts"]
     data_root = Path(data_config["root"])
     train_shards = discover_shards(data_root, "train")
     val_shards = discover_shards(data_root, "val")
@@ -229,6 +262,7 @@ def main() -> int:
         shuffle_buffer=int(data_config["shuffle_buffer"]),
         seed=int(config["seed"]),
         sample_fraction=1.0,
+        require_side_view=use_side_view,
         rank=rank,
         world_size=world_size,
     )
@@ -251,6 +285,7 @@ def main() -> int:
             shuffle_buffer=1,
             seed=int(config["seed"]),
             sample_fraction=data_fraction,
+            require_side_view=use_side_view,
             rank=0,
             world_size=1,
         )
@@ -267,7 +302,7 @@ def main() -> int:
         model_config["pretrained"] = False
     model = FaceToCK3Model(schema, model_config).to(device)
     criterion = MultitaskLoss(
-        schema, config["loss"], label_stats["categorical_class_counts"]
+        schema, config["loss"], observable_class_counts
     ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameter_groups(
@@ -385,6 +420,9 @@ def main() -> int:
                     device=device,
                     amp_mode=amp_mode,
                     max_steps=train_config.get("max_val_steps"),
+                    observable_threshold=float(
+                        config["loss"]["class_visibility_threshold"]
+                    ),
                 )
             score = selection_score(validation_metrics, config["selection"])
             improved = score < best_score
@@ -429,7 +467,8 @@ def main() -> int:
             print(
                 f"epoch={epoch} val_score={score:.6f} "
                 f"signed_mae={validation_metrics['signed_mae']:.5f} "
-                f"macro_f1={validation_metrics['categorical_macro_f1']:.4f}",
+                "observable_macro_f1="
+                f"{validation_metrics['categorical_observable_macro_f1']:.4f}",
                 flush=True,
             )
             stop = epochs_without_improvement >= int(
