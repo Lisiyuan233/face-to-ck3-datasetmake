@@ -155,6 +155,20 @@ def load_resume(
             "checkpoint side-view architecture does not match the current config; "
             "start a new run"
         )
+    saved_geometry_branch = bool(
+        checkpoint.get("config", {})
+        .get("model", {})
+        .get("geometry_branch", {})
+        .get("enabled", False)
+    )
+    current_geometry_branch = bool(
+        getattr(model, "use_geometry_branch", False)
+    )
+    if saved_geometry_branch != current_geometry_branch:
+        raise RuntimeError(
+            "checkpoint geometry-branch architecture does not match the current "
+            "config; start a new run"
+        )
     saved_schema = checkpoint.get("schema", {}).get("schema_sha256")
     if saved_schema != schema_sha256:
         raise RuntimeError(
@@ -245,6 +259,7 @@ def main() -> int:
         config["augmentation"],
         training=True,
         dual_view=bool(config["model"]["dual_view"]),
+        geometry_map_config=config["model"]["geometry_branch"],
     )
     eval_transform = DualViewTransform(
         data_config["image_height"],
@@ -252,6 +267,7 @@ def main() -> int:
         config["augmentation"],
         training=False,
         dual_view=bool(config["model"]["dual_view"]),
+        geometry_map_config=config["model"]["geometry_branch"],
     )
     train_dataset = TarShardDataset(
         train_shards,
@@ -464,11 +480,18 @@ def main() -> int:
             atomic_checkpoint(output_dir / "last.pt", state)
             if improved:
                 atomic_checkpoint(output_dir / "best.pt", state)
+            geometry_gate_text = ""
+            if "geometry_gate_mean" in validation_metrics:
+                geometry_gate_text = (
+                    " geometry_gate="
+                    f"{validation_metrics['geometry_gate_mean']:.4f}"
+                )
             print(
                 f"epoch={epoch} val_score={score:.6f} "
                 f"signed_mae={validation_metrics['signed_mae']:.5f} "
                 "observable_macro_f1="
-                f"{validation_metrics['categorical_observable_macro_f1']:.4f}",
+                f"{validation_metrics['categorical_observable_macro_f1']:.4f}"
+                f"{geometry_gate_text}",
                 flush=True,
             )
             stop = epochs_without_improvement >= int(

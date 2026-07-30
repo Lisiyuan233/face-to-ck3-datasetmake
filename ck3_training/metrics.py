@@ -55,6 +55,12 @@ class MetricAccumulator:
         self.race_count = torch.zeros(17, dtype=torch.float64, device=device)
         self.loss_sums: dict[str, torch.Tensor] = {}
         self.loss_batches = torch.zeros((), dtype=torch.float64, device=device)
+        self.geometry_gate_sum = torch.zeros(
+            (), dtype=torch.float64, device=device
+        )
+        self.geometry_gate_count = torch.zeros(
+            (), dtype=torch.float64, device=device
+        )
 
     @torch.no_grad()
     def update(
@@ -71,6 +77,10 @@ class MetricAccumulator:
         ).abs()
         self.signed_abs += signed_error.sum(dim=0, dtype=torch.float64)
         self.strength_abs += strength_error.sum(dim=0, dtype=torch.float64)
+        if "geometry_gate_mean" in outputs:
+            gate = outputs["geometry_gate_mean"]
+            self.geometry_gate_sum += gate.sum(dtype=torch.float64)
+            self.geometry_gate_count += gate.numel()
 
         for index in self.schema.active_categorical_indices:
             logits = outputs["categorical_logits"][str(index)]
@@ -175,7 +185,7 @@ class MetricAccumulator:
             key: float((value / loss_batches).item())
             for key, value in self.loss_sums.items()
         }
-        return {
+        result = {
             "sample_count": int(self.sample_count.item()),
             "loss": losses,
             "signed_mae": float(signed_fields.mean().item()),
@@ -194,6 +204,13 @@ class MetricAccumulator:
             "categorical_fields": categorical,
             "race_groups": race_groups,
         }
+        if self.geometry_gate_count > 0:
+            result["geometry_gate_mean"] = float(
+                (
+                    self.geometry_gate_sum / self.geometry_gate_count
+                ).item()
+            )
+        return result
 
 
 def selection_score(

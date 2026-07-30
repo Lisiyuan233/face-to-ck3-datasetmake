@@ -20,6 +20,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(DEFAULT_CONFIG["loss"]["class_label_smoothing"], 0.05)
         self.assertEqual(DEFAULT_CONFIG["loss"]["consistency_weight"], 0.1)
         self.assertNotIn("color_weight", DEFAULT_CONFIG["loss"])
+        self.assertFalse(
+            DEFAULT_CONFIG["model"]["geometry_branch"]["enabled"]
+        )
         self.assertEqual(
             sum(DEFAULT_CONFIG["selection"].values()),
             1.0,
@@ -49,6 +52,22 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config["train"]["gradient_accumulation"], 2)
         smoke = apply_smoke_overrides(config)
         self.assertTrue(smoke["model"]["side_view"])
+
+    def test_multiview_geometry_config_is_valid(self) -> None:
+        config = load_config(
+            ROOT
+            / "configs"
+            / "train_convnext_tiny_multiview_geometry.json"
+        )
+        validate_config(config)
+        self.assertTrue(config["model"]["side_view"])
+        self.assertTrue(config["model"]["geometry_branch"]["enabled"])
+
+    def test_geometry_map_dimensions_are_validated(self) -> None:
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["model"]["geometry_branch"]["grid_height"] = 4
+        with self.assertRaisesRegex(ValueError, "grid_height"):
+            validate_config(config)
 
 
 if __name__ == "__main__":

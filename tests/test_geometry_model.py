@@ -4,6 +4,8 @@ import json
 import unittest
 from pathlib import Path
 
+from PIL import Image, ImageDraw
+
 try:
     import torch
 except ImportError:
@@ -81,6 +83,54 @@ class GeometryModelTests(unittest.TestCase):
         outputs = model(image, image, image)
         self.assertEqual(outputs["signed"].shape, (2, schema.signed_dim))
         self.assertTrue(hasattr(model, "side_gate"))
+
+    def test_geometry_map_exposes_foreground_and_edges(self) -> None:
+        from ck3_training.data import build_geometry_map
+
+        image = Image.new("RGB", (64, 96), (34, 36, 40))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((16, 12, 48, 74), fill=(170, 120, 90))
+        geometry_map = build_geometry_map(
+            image,
+            grid_height=24,
+            grid_width=16,
+            foreground_margin=0.06,
+            foreground_softness=0.03,
+        )
+        self.assertEqual(tuple(geometry_map.shape), (2, 24, 16))
+        self.assertTrue(torch.isfinite(geometry_map).all())
+        self.assertGreater(
+            float(geometry_map[0, 10:18, 6:10].mean()),
+            float(geometry_map[0, :3, :3].mean()),
+        )
+        self.assertGreater(float(geometry_map[1].max()), 0.0)
+
+    def test_geometry_branch_uses_front_and_side_maps(self) -> None:
+        from ck3_training.config import DEFAULT_CONFIG, apply_smoke_overrides
+        from ck3_training.model import FaceToCK3Model
+        from ck3_training.schema import load_schema
+
+        schema = load_schema(DATASET / "dna_schema.json")
+        config = apply_smoke_overrides(DEFAULT_CONFIG)
+        config["model"]["dual_view"] = True
+        config["model"]["side_view"] = True
+        config["model"]["geometry_branch"]["enabled"] = True
+        model = FaceToCK3Model(schema, config["model"])
+        image = torch.rand(2, 3, 64, 64)
+        front_map = torch.rand(2, 2, 24, 16)
+        side_map = torch.rand(2, 2, 24, 16)
+        outputs = model(
+            image,
+            image,
+            image,
+            front_map,
+            side_map,
+        )
+        self.assertEqual(outputs["signed"].shape, (2, schema.signed_dim))
+        self.assertTrue(hasattr(model, "geometry_gate"))
+        self.assertEqual(outputs["geometry_gate_mean"].shape, (2,))
+        with self.assertRaisesRegex(ValueError, "side_geometry_map"):
+            model(image, image, image, front_map)
 
     def test_selection_score_uses_observable_macro_f1(self) -> None:
         from ck3_training.metrics import selection_score

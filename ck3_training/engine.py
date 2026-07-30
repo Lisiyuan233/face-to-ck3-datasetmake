@@ -184,6 +184,14 @@ def train_one_epoch(
         side = batch.get("side_view")
         if side is not None:
             side = side.to(device, non_blocking=True)
+        geometry_map = batch.get("geometry_map")
+        if geometry_map is not None:
+            geometry_map = geometry_map.to(device, non_blocking=True)
+        side_geometry_map = batch.get("side_geometry_map")
+        if side_geometry_map is not None:
+            side_geometry_map = side_geometry_map.to(
+                device, non_blocking=True
+            )
         targets = move_targets(batch, device)
         final_micro_step = micro_step + 1 == micro_steps
         should_update = ((micro_step + 1) % accumulation_steps == 0) or final_micro_step
@@ -194,7 +202,13 @@ def train_one_epoch(
             with torch.autocast(
                 device_type=device.type, dtype=dtype, enabled=enabled
             ):
-                outputs = model(geometry, reference, side)
+                outputs = model(
+                    geometry,
+                    reference,
+                    side,
+                    geometry_map,
+                    side_geometry_map,
+                )
                 loss, components = criterion(outputs, targets)
                 accumulation_group_start = (
                     micro_step // accumulation_steps
@@ -279,9 +293,23 @@ def evaluate(
         side = batch.get("side_view")
         if side is not None:
             side = side.to(device, non_blocking=True)
+        geometry_map = batch.get("geometry_map")
+        if geometry_map is not None:
+            geometry_map = geometry_map.to(device, non_blocking=True)
+        side_geometry_map = batch.get("side_geometry_map")
+        if side_geometry_map is not None:
+            side_geometry_map = side_geometry_map.to(
+                device, non_blocking=True
+            )
         targets = move_targets(batch, device)
         with torch.autocast(device_type=device.type, dtype=dtype, enabled=enabled):
-            outputs = model(geometry, reference, side)
+            outputs = model(
+                geometry,
+                reference,
+                side,
+                geometry_map,
+                side_geometry_map,
+            )
             _, components = criterion(outputs, targets)
         metrics.update(outputs, targets, components)
     return metrics.compute()

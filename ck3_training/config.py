@@ -24,6 +24,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "dual_view": True,
         "side_view": False,
         "dropout": 0.2,
+        "geometry_branch": {
+            "enabled": False,
+            "grid_height": 48,
+            "grid_width": 32,
+            "hidden_dim": 256,
+            "dropout": 0.1,
+            "gate_bias": -2.0,
+            "foreground_margin": 0.06,
+            "foreground_softness": 0.03,
+        },
     },
     "train": {
         "output_dir": "runs/convnext_tiny_geometry_v1",
@@ -120,6 +130,8 @@ def apply_smoke_overrides(config: dict[str, Any]) -> dict[str, Any]:
             "dual_view": False,
         }
     )
+    if config["model"]["geometry_branch"]["enabled"]:
+        config["model"]["geometry_branch"]["hidden_dim"] = 64
     config["data"].update(
         {"image_height": 192, "image_width": 128, "shuffle_buffer": 64}
     )
@@ -164,6 +176,26 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("model.backbone must be resnet18 or convnext_tiny")
     if not isinstance(model.get("side_view"), bool):
         raise ValueError("model.side_view must be a boolean")
+    geometry_branch = model.get("geometry_branch")
+    if not isinstance(geometry_branch, dict):
+        raise ValueError("model.geometry_branch must be an object")
+    if not isinstance(geometry_branch.get("enabled"), bool):
+        raise ValueError("model.geometry_branch.enabled must be a boolean")
+    for key in ("grid_height", "grid_width"):
+        if int(geometry_branch[key]) < 8:
+            raise ValueError(f"model.geometry_branch.{key} must be >= 8")
+    if int(geometry_branch["hidden_dim"]) < 16:
+        raise ValueError("model.geometry_branch.hidden_dim must be >= 16")
+    if not 0.0 <= float(geometry_branch["dropout"]) < 1.0:
+        raise ValueError("model.geometry_branch.dropout must be in [0, 1)")
+    if float(geometry_branch["foreground_margin"]) < 0:
+        raise ValueError(
+            "model.geometry_branch.foreground_margin must be >= 0"
+        )
+    if float(geometry_branch["foreground_softness"]) <= 0:
+        raise ValueError(
+            "model.geometry_branch.foreground_softness must be > 0"
+        )
     if int(data["shuffle_buffer"]) < 1:
         raise ValueError("data.shuffle_buffer must be >= 1")
     if not 0.0 < float(data["fraction"]) <= 1.0:

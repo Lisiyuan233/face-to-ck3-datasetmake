@@ -74,6 +74,26 @@ python train.py \
 
 训练分片会在完整有序范围内等距选择，验证样本则从所有分片稳定抽样，因此不会像截取前 10% 那样丢失大部分 race group。实际比例和有效样本数会写入 `resolved_config.json` 并在启动日志中显示。正式训练不传该参数，默认使用 `1.0`。
 
+## 几何支路消融
+
+`train_convnext_tiny_multiview_geometry.json` 在原 RGB 多视图模型上增加一个轻量几何支路。数据加载器会在同一次仿射增强后、光度增强前生成两通道形状图：
+
+- 前景通道根据裁剪图上方两角估计背景，保留头部、耳朵、颈部和侧脸轮廓；
+- 边缘通道强调眼、鼻、嘴、下颌及侧面深度边界。
+
+正脸和侧脸形状图由小型 CNN 编码，再通过初始偏置为负值的门控残差注入 RGB 特征。它不需要重建 tar 分片或安装额外的人脸模型；关闭 `model.geometry_branch.enabled` 后即回到原架构。
+
+先用相同的 10% 子集做严格消融：
+
+```bash
+python train.py \
+  --config configs/train_convnext_tiny_multiview_geometry.json \
+  --data-fraction 0.1 \
+  --device cuda
+```
+
+必须与同样 `--data-fraction 0.1` 的 `train_convnext_tiny_multiview.json` 比较，不能拿它和全量正脸实验直接比较。验证输出中的 `geometry_gate_mean` 表示模型平均使用几何支路的程度；若它长期接近零且综合分数没有改善，应停用该支路。通过小规模消融后，再去掉 `--data-fraction` 运行全量训练。
+
 ## 断点恢复
 
 ```bash

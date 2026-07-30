@@ -1,0 +1,37 @@
+{
+  "seed": 20260718,
+  "data": {
+    "root": "face_to_ck3_dataset_male_small/processed_multiview",
+    "manifest": "face_to_ck3_dataset_male_small/processed_multiview/manifest.json",
+    "train_label_stats": "face_to_ck3_dataset_male_small/processed_multiview/train_label_stats.json"
+  },
+  "model": {
+    "backbone": "convnext_tiny",
+    "pretrained": true,
+    "dual_view": true,
+    "side_view": true,
+    "dropout": 0.2,
+    "geometry_branch": {
+      "enabled": true,
+      "grid_height": 48,
+      "grid_width": 32,
+      "hidden_dim": 256,
+      "dropout": 0.1,
+      "gate_bias": -2.0,
+      "foreground_margin": 0.06,
+      "foreground_softness": 0.03
+    }
+  },
+  "train": {
+    "output_dir": "runs/convnext_tiny_multiview_geometry_v1",
+    "epochs": 30,
+    "freeze_backbone_epochs": 2,
+    "batch_size": 16,
+    "gradient_accumulation": 2,
+    "num_workers": 8,
+    "val_num_workers": 4,
+    "backbone_lr": 0.0001,
+    "head_lr": 0.0003,
+    "amp": "bf16"
+  }
+}

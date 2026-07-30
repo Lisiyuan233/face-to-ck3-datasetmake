@@ -10,6 +10,7 @@ from typing import Any, Iterator
 
 import torch
 from PIL import Image
+from torch.nn import functional as F
 from torch.utils.data import IterableDataset, get_worker_info
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms import functional as TF
@@ -20,6 +21,66 @@ from .schema import CK3Schema
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+def build_geometry_map(
+    image: Image.Image,
+    *,
+    grid_height: int,
+    grid_width: int,
+    foreground_margin: float,
+    foreground_softness: float,
+) -> torch.Tensor:
+    """Build a compact, photometry-resistant foreground/edge representation."""
+    if int(grid_height) < 8 or int(grid_width) < 8:
+        raise ValueError("geometry map grid dimensions must be at least 8")
+    if float(foreground_margin) < 0:
+        raise ValueError("foreground_margin must be >= 0")
+    if float(foreground_softness) <= 0:
+        raise ValueError("foreground_softness must be > 0")
+
+    rgb = TF.to_tensor(image.convert("RGB"))
+    _, height, width = rgb.shape
+    patch_height = max(2, round(height * 0.08))
+    patch_width = max(2, round(width * 0.12))
+    top_corners = torch.cat(
+        (
+            rgb[:, :patch_height, :patch_width].reshape(3, -1),
+            rgb[:, :patch_height, width - patch_width :].reshape(3, -1),
+        ),
+        dim=1,
+    )
+    background = top_corners.mean(dim=1)[:, None, None]
+    corner_distance = torch.linalg.vector_norm(
+        top_corners - background.flatten(1), dim=0
+    )
+    background_variation = (
+        corner_distance.mean() + 2.0 * corner_distance.std()
+    )
+    threshold = (background_variation + float(foreground_margin)).clamp(
+        min=0.03, max=0.45
+    )
+    distance = torch.linalg.vector_norm(rgb - background, dim=0)
+    foreground = torch.sigmoid(
+        (distance - threshold) / float(foreground_softness)
+    )
+
+    gray = (
+        0.2989 * rgb[0]
+        + 0.5870 * rgb[1]
+        + 0.1140 * rgb[2]
+    )
+    horizontal = torch.zeros_like(gray)
+    vertical = torch.zeros_like(gray)
+    horizontal[:, :-1] = (gray[:, 1:] - gray[:, :-1]).abs()
+    vertical[:-1, :] = (gray[1:, :] - gray[:-1, :]).abs()
+    edge = ((horizontal + vertical) * 2.0).clamp_(0.0, 1.0)
+    edge = edge * (0.25 + 0.75 * foreground)
+
+    maps = torch.stack((foreground, edge), dim=0).unsqueeze(0)
+    return F.adaptive_avg_pool2d(
+        maps, (int(grid_height), int(grid_width))
+    ).squeeze(0)
 
 
 def _uniform_jitter(
@@ -69,12 +130,17 @@ class DualViewTransform:
         augmentation: dict[str, Any],
         training: bool,
         dual_view: bool,
+        geometry_map_config: dict[str, Any] | None = None,
     ) -> None:
         self.height = int(height)
         self.width = int(width)
         self.augmentation = augmentation
         self.training = training
         self.dual_view = dual_view
+        self.geometry_map_config = dict(geometry_map_config or {})
+        self.geometry_map_enabled = bool(
+            self.geometry_map_config.get("enabled", False)
+        )
 
     def _geometry(
         self,
@@ -123,11 +189,9 @@ class DualViewTransform:
         tensor = TF.to_tensor(image)
         return TF.normalize(tensor, IMAGENET_MEAN, IMAGENET_STD)
 
-    def __call__(
-        self, image: Image.Image, *, allow_horizontal_flip: bool = True
+    def _views_from_aligned(
+        self, aligned: Image.Image, rng: random.Random
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        rng = random
-        aligned = self._geometry(image, rng, allow_horizontal_flip)
         if not self.training:
             tensor = self._to_normalized_tensor(aligned)
             return tensor, tensor
@@ -181,6 +245,34 @@ class DualViewTransform:
         if not self.dual_view:
             reference_tensor = geometry_tensor
         return geometry_tensor, reference_tensor
+
+    def __call__(
+        self, image: Image.Image, *, allow_horizontal_flip: bool = True
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        rng = random
+        aligned = self._geometry(image, rng, allow_horizontal_flip)
+        return self._views_from_aligned(aligned, rng)
+
+    def with_geometry_map(
+        self, image: Image.Image, *, allow_horizontal_flip: bool = True
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if not self.geometry_map_enabled:
+            raise RuntimeError("geometry map generation is not enabled")
+        rng = random
+        aligned = self._geometry(image, rng, allow_horizontal_flip)
+        geometry, reference = self._views_from_aligned(aligned, rng)
+        geometry_map = build_geometry_map(
+            aligned,
+            grid_height=int(self.geometry_map_config["grid_height"]),
+            grid_width=int(self.geometry_map_config["grid_width"]),
+            foreground_margin=float(
+                self.geometry_map_config["foreground_margin"]
+            ),
+            foreground_softness=float(
+                self.geometry_map_config["foreground_softness"]
+            ),
+        )
+        return geometry, reference, geometry_map
 
 
 class TarShardDataset(IterableDataset):
@@ -303,7 +395,13 @@ class TarShardDataset(IterableDataset):
             self.schema.validate_label(label)
             with Image.open(io.BytesIO(raw["front_image_bytes"])) as decoded:
                 front_image = decoded.convert("RGB")
-            geometry, reference = self.transform(front_image)
+            if self.transform.geometry_map_enabled:
+                geometry, reference, geometry_map = (
+                    self.transform.with_geometry_map(front_image)
+                )
+            else:
+                geometry, reference = self.transform(front_image)
+                geometry_map = None
             sample = {
                 "sample_id": str(label["sample_id"]),
                 "geometry_view": geometry,
@@ -319,12 +417,22 @@ class TarShardDataset(IterableDataset):
                     int(label.get("race_group", -1)), dtype=torch.long
                 ),
             }
+            if geometry_map is not None:
+                sample["geometry_map"] = geometry_map
             if raw["side_image_bytes"] is not None:
                 with Image.open(io.BytesIO(raw["side_image_bytes"])) as decoded:
                     side_image = decoded.convert("RGB")
-                side, _ = self.transform(
-                    side_image, allow_horizontal_flip=False
-                )
+                if self.transform.geometry_map_enabled:
+                    side, _, side_geometry_map = (
+                        self.transform.with_geometry_map(
+                            side_image, allow_horizontal_flip=False
+                        )
+                    )
+                    sample["side_geometry_map"] = side_geometry_map
+                else:
+                    side, _ = self.transform(
+                        side_image, allow_horizontal_flip=False
+                    )
                 sample["side_view"] = side
             return sample
         except Exception as error:

@@ -95,20 +95,45 @@ def main() -> int:
         config["augmentation"],
         training=False,
         dual_view=bool(model_config["dual_view"]),
+        geometry_map_config=model_config.get("geometry_branch"),
     )
     with Image.open(args.image) as source:
-        geometry, reference = transform(source.convert("RGB"))
+        front_image = source.convert("RGB")
+    if transform.geometry_map_enabled:
+        geometry, reference, geometry_map = transform.with_geometry_map(
+            front_image
+        )
+    else:
+        geometry, reference = transform(front_image)
+        geometry_map = None
     side = None
+    side_geometry_map = None
     if args.side_image:
         with Image.open(args.side_image) as source:
+            side_image = source.convert("RGB")
+        if transform.geometry_map_enabled:
+            side, _, side_geometry_map = transform.with_geometry_map(
+                side_image, allow_horizontal_flip=False
+            )
+        else:
             side, _ = transform(
-                source.convert("RGB"), allow_horizontal_flip=False
+                side_image, allow_horizontal_flip=False
             )
     with torch.inference_mode():
         outputs = model(
             geometry.unsqueeze(0).to(device),
             reference.unsqueeze(0).to(device),
             side.unsqueeze(0).to(device) if side is not None else None,
+            (
+                geometry_map.unsqueeze(0).to(device)
+                if geometry_map is not None
+                else None
+            ),
+            (
+                side_geometry_map.unsqueeze(0).to(device)
+                if side_geometry_map is not None
+                else None
+            ),
         )
 
     classes = [0] * schema.categorical_dim
