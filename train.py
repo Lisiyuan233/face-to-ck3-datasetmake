@@ -169,6 +169,25 @@ def load_resume(
             "checkpoint geometry-branch architecture does not match the current "
             "config; start a new run"
         )
+    if current_geometry_branch:
+        saved_geometry_config = (
+            checkpoint.get("config", {})
+            .get("model", {})
+            .get("geometry_branch", {})
+        )
+        saved_geometry_targets = frozenset(
+            saved_geometry_config.get(
+                "targets", ("signed", "strength", "categorical")
+            )
+        )
+        current_geometry_targets = frozenset(
+            getattr(model, "geometry_targets", ())
+        )
+        if saved_geometry_targets != current_geometry_targets:
+            raise RuntimeError(
+                "checkpoint geometry-branch targets do not match the current "
+                "config; start a new run"
+            )
     saved_schema = checkpoint.get("schema", {}).get("schema_sha256")
     if saved_schema != schema_sha256:
         raise RuntimeError(

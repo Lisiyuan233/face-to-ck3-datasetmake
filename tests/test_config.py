@@ -24,6 +24,10 @@ class ConfigTests(unittest.TestCase):
             DEFAULT_CONFIG["model"]["geometry_branch"]["enabled"]
         )
         self.assertEqual(
+            DEFAULT_CONFIG["model"]["geometry_branch"]["targets"],
+            ["signed", "strength", "categorical"],
+        )
+        self.assertEqual(
             sum(DEFAULT_CONFIG["selection"].values()),
             1.0,
         )
@@ -62,6 +66,30 @@ class ConfigTests(unittest.TestCase):
         validate_config(config)
         self.assertTrue(config["model"]["side_view"])
         self.assertTrue(config["model"]["geometry_branch"]["enabled"])
+        self.assertEqual(
+            config["model"]["geometry_branch"]["targets"],
+            ["signed", "strength", "categorical"],
+        )
+
+    def test_signed_only_geometry_config_is_valid(self) -> None:
+        config = load_config(
+            ROOT
+            / "configs"
+            / "train_convnext_tiny_multiview_signed_geometry.json"
+        )
+        validate_config(config)
+        self.assertEqual(
+            config["model"]["geometry_branch"]["targets"], ["signed"]
+        )
+
+    def test_geometry_targets_are_validated(self) -> None:
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["model"]["geometry_branch"]["targets"] = [
+            "signed",
+            "categorical_class",
+        ]
+        with self.assertRaisesRegex(ValueError, "targets"):
+            validate_config(config)
 
     def test_geometry_map_dimensions_are_validated(self) -> None:
         config = copy.deepcopy(DEFAULT_CONFIG)

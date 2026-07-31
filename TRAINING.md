@@ -76,23 +76,23 @@ python train.py \
 
 ## 几何支路消融
 
-`train_convnext_tiny_multiview_geometry.json` 在原 RGB 多视图模型上增加一个轻量几何支路。数据加载器会在同一次仿射增强后、光度增强前生成两通道形状图：
+几何消融会在原 RGB 多视图模型上增加一个轻量支路。数据加载器在同一次仿射增强后、光度增强前生成两通道形状图：
 
 - 前景通道根据裁剪图上方两角估计背景，保留头部、耳朵、颈部和侧脸轮廓；
 - 边缘通道强调眼、鼻、嘴、下颌及侧面深度边界。
 
-正脸和侧脸形状图由小型 CNN 编码，再通过初始偏置为负值的门控残差注入 RGB 特征。它不需要重建 tar 分片或安装额外的人脸模型；关闭 `model.geometry_branch.enabled` 后即回到原架构。
+正脸和侧脸形状图由小型 CNN 编码，再通过初始偏置为负值的门控残差注入 RGB 特征。它不需要重建 tar 分片或安装额外的人脸模型；关闭 `model.geometry_branch.enabled` 后即回到原架构。`model.geometry_branch.targets` 控制几何特征影响的任务，可选值是 `signed`、`strength` 和 `categorical`。
 
-先用相同的 10% 子集做严格消融：
+第一轮 10% 消融中，全任务几何支路的综合分数比基线差约 0.36%，分类验证损失也更高；只有 signed MAE 有约 0.05% 的微小改善。因此保留 `train_convnext_tiny_multiview_geometry.json` 用于复现 v1，但下一轮应使用只向 signed 连续参数路由几何特征的 v2：
 
 ```bash
 python train.py \
-  --config configs/train_convnext_tiny_multiview_geometry.json \
+  --config configs/train_convnext_tiny_multiview_signed_geometry.json \
   --data-fraction 0.1 \
   --device cuda
 ```
 
-必须与同样 `--data-fraction 0.1` 的 `train_convnext_tiny_multiview.json` 比较，不能拿它和全量正脸实验直接比较。验证输出中的 `geometry_gate_mean` 表示模型平均使用几何支路的程度；若它长期接近零且综合分数没有改善，应停用该支路。通过小规模消融后，再去掉 `--data-fraction` 运行全量训练。
+必须与同样 `--data-fraction 0.1` 的 `train_convnext_tiny_multiview.json` 比较，不能拿它和全量正脸实验直接比较。v2 中 strength 和 categorical 头只读取 RGB 特征，避免几何支路在分类任务上形成训练捷径。验证输出中的 `geometry_gate_mean` 表示 signed 头平均使用几何支路的程度；只有当 signed MAE 和综合分数都稳定改善时，才去掉 `--data-fraction` 运行全量训练。
 
 ## 断点恢复
 

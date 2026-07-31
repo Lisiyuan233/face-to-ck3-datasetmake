@@ -108,6 +108,11 @@ class FaceToCK3Model(nn.Module):
         self.use_side_view = bool(config.get("side_view", False))
         geometry_config = config.get("geometry_branch", {})
         self.use_geometry_branch = bool(geometry_config.get("enabled", False))
+        self.geometry_targets = frozenset(
+            geometry_config.get(
+                "targets", ("signed", "strength", "categorical")
+            )
+        )
         self.backbone, feature_dim = _build_backbone(
             str(config["backbone"]), bool(config.get("pretrained", True))
         )
@@ -159,12 +164,37 @@ class FaceToCK3Model(nn.Module):
             features = torch.flatten(features, 1)
         return self.feature_dropout(features)
 
-    def _geometry_outputs(self, features: torch.Tensor) -> dict[str, Any]:
+    def _geometry_outputs(
+        self,
+        visual_features: torch.Tensor,
+        fused_geometry_features: torch.Tensor | None = None,
+    ) -> dict[str, Any]:
+        signed_features = (
+            fused_geometry_features
+            if fused_geometry_features is not None
+            and "signed" in self.geometry_targets
+            else visual_features
+        )
+        strength_features = (
+            fused_geometry_features
+            if fused_geometry_features is not None
+            and "strength" in self.geometry_targets
+            else visual_features
+        )
+        categorical_features = (
+            fused_geometry_features
+            if fused_geometry_features is not None
+            and "categorical" in self.geometry_targets
+            else visual_features
+        )
         return {
-            "signed": torch.tanh(self.signed_head(features)),
-            "categorical_strength": torch.sigmoid(self.strength_head(features)),
+            "signed": torch.tanh(self.signed_head(signed_features)),
+            "categorical_strength": torch.sigmoid(
+                self.strength_head(strength_features)
+            ),
             "categorical_logits": {
-                key: head(features) for key, head in self.categorical_heads.items()
+                key: head(categorical_features)
+                for key, head in self.categorical_heads.items()
             },
         }
 
@@ -228,7 +258,7 @@ class FaceToCK3Model(nn.Module):
         geometry_map: torch.Tensor | None = None,
         side_geometry_map: torch.Tensor | None = None,
     ) -> dict[str, Any]:
-        geometry_features = self.encode(geometry_view)
+        visual_features = self.encode(geometry_view)
         geometry_map_features = self._encode_geometry(
             geometry_map, side_geometry_map
         )
@@ -237,13 +267,15 @@ class FaceToCK3Model(nn.Module):
             if side_view is None:
                 raise ValueError("multi-view model requires side_view")
             side_features = self.encode(side_view)
-            geometry_features = self._fuse_views(
-                geometry_features, side_features
+            visual_features = self._fuse_views(
+                visual_features, side_features
             )
-        geometry_features, geometry_gate_mean = self._fuse_geometry(
-            geometry_features, geometry_map_features
+        fused_geometry_features, geometry_gate_mean = self._fuse_geometry(
+            visual_features, geometry_map_features
         )
-        outputs = self._geometry_outputs(geometry_features)
+        outputs = self._geometry_outputs(
+            visual_features, fused_geometry_features
+        )
         if geometry_gate_mean is not None:
             outputs["geometry_gate_mean"] = geometry_gate_mean
         if self.dual_view:
@@ -254,10 +286,12 @@ class FaceToCK3Model(nn.Module):
                 reference_features = self._fuse_views(
                     reference_features, side_features
                 )
-            reference_features, reference_gate_mean = self._fuse_geometry(
+            fused_reference_features, reference_gate_mean = self._fuse_geometry(
                 reference_features, geometry_map_features
             )
-            outputs["reference"] = self._geometry_outputs(reference_features)
+            outputs["reference"] = self._geometry_outputs(
+                reference_features, fused_reference_features
+            )
             if reference_gate_mean is not None:
                 outputs["reference_geometry_gate_mean"] = (
                     reference_gate_mean

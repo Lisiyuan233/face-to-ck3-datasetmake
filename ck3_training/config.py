@@ -26,6 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "dropout": 0.2,
         "geometry_branch": {
             "enabled": False,
+            "targets": ["signed", "strength", "categorical"],
             "grid_height": 48,
             "grid_width": 32,
             "hidden_dim": 256,
@@ -181,6 +182,19 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("model.geometry_branch must be an object")
     if not isinstance(geometry_branch.get("enabled"), bool):
         raise ValueError("model.geometry_branch.enabled must be a boolean")
+    targets = geometry_branch.get("targets")
+    allowed_targets = {"signed", "strength", "categorical"}
+    if (
+        not isinstance(targets, list)
+        or not targets
+        or any(not isinstance(target, str) for target in targets)
+        or len(targets) != len(set(targets))
+        or not set(targets).issubset(allowed_targets)
+    ):
+        raise ValueError(
+            "model.geometry_branch.targets must be a non-empty list without "
+            "duplicates containing only signed, strength, and categorical"
+        )
     for key in ("grid_height", "grid_width"):
         if int(geometry_branch[key]) < 8:
             raise ValueError(f"model.geometry_branch.{key} must be >= 8")

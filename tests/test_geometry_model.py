@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from PIL import Image, ImageDraw
 
@@ -131,6 +132,123 @@ class GeometryModelTests(unittest.TestCase):
         self.assertEqual(outputs["geometry_gate_mean"].shape, (2,))
         with self.assertRaisesRegex(ValueError, "side_geometry_map"):
             model(image, image, image, front_map)
+
+    def test_signed_only_geometry_does_not_change_other_heads(self) -> None:
+        from ck3_training.config import DEFAULT_CONFIG, apply_smoke_overrides
+        from ck3_training.model import FaceToCK3Model
+        from ck3_training.schema import load_schema
+
+        schema = load_schema(DATASET / "dna_schema.json")
+        config = apply_smoke_overrides(DEFAULT_CONFIG)
+        config["model"]["dual_view"] = True
+        config["model"]["side_view"] = True
+        config["model"]["geometry_branch"].update(
+            {"enabled": True, "targets": ["signed"]}
+        )
+        model = FaceToCK3Model(schema, config["model"]).eval()
+
+        image = torch.rand(1, 3, 64, 64).repeat(2, 1, 1, 1)
+        front_map = torch.stack(
+            (
+                torch.zeros(2, 24, 16),
+                torch.rand(2, 24, 16),
+            )
+        )
+        side_map = torch.stack(
+            (
+                torch.zeros(2, 24, 16),
+                torch.rand(2, 24, 16),
+            )
+        )
+        with torch.inference_mode():
+            outputs = model(
+                image,
+                image,
+                image,
+                front_map,
+                side_map,
+            )
+
+        self.assertFalse(
+            torch.allclose(outputs["signed"][0], outputs["signed"][1])
+        )
+        torch.testing.assert_close(
+            outputs["categorical_strength"][0],
+            outputs["categorical_strength"][1],
+            rtol=0,
+            atol=0,
+        )
+        for logits in outputs["categorical_logits"].values():
+            torch.testing.assert_close(
+                logits[0], logits[1], rtol=0, atol=0
+            )
+        torch.testing.assert_close(
+            outputs["reference"]["categorical_strength"][0],
+            outputs["reference"]["categorical_strength"][1],
+            rtol=0,
+            atol=0,
+        )
+        for logits in outputs["reference"]["categorical_logits"].values():
+            torch.testing.assert_close(
+                logits[0], logits[1], rtol=0, atol=0
+            )
+
+    def test_resume_treats_missing_targets_as_legacy_all_tasks(self) -> None:
+        from ck3_training.schema import TARGET_FAMILY
+        from train import load_resume
+
+        checkpoint = {
+            "config": {
+                "model": {
+                    "side_view": True,
+                    "geometry_branch": {"enabled": True},
+                }
+            },
+            "schema": {
+                "target_family": TARGET_FAMILY,
+                "schema_sha256": "test-schema",
+            },
+            "model": {},
+            "optimizer": {},
+            "scheduler": {},
+            "scaler": None,
+            "ema": None,
+        }
+        model = MagicMock()
+        model.use_side_view = True
+        model.use_geometry_branch = True
+        model.geometry_targets = frozenset(
+            ("signed", "strength", "categorical")
+        )
+        with patch("train.torch.load", return_value=checkpoint):
+            restored = load_resume(
+                Path("legacy.pt"),
+                model=model,
+                optimizer=MagicMock(),
+                scheduler=MagicMock(),
+                scaler=MagicMock(),
+                ema=MagicMock(),
+                schema_sha256="test-schema",
+                device=torch.device("cpu"),
+            )
+        self.assertIs(restored, checkpoint)
+        model.load_state_dict.assert_called_once_with({}, strict=True)
+
+        model.geometry_targets = frozenset(("signed",))
+        with (
+            patch("train.torch.load", return_value=checkpoint),
+            self.assertRaisesRegex(RuntimeError, "targets"),
+        ):
+            load_resume(
+                Path("legacy.pt"),
+                model=model,
+                optimizer=MagicMock(),
+                scheduler=MagicMock(),
+                scaler=MagicMock(),
+                ema=MagicMock(),
+                schema_sha256="test-schema",
+                device=torch.device("cpu"),
+            )
 
     def test_selection_score_uses_observable_macro_f1(self) -> None:
         from ck3_training.metrics import selection_score

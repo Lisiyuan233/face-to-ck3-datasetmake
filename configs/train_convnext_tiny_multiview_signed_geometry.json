@@ -13,7 +13,7 @@
     "dropout": 0.2,
     "geometry_branch": {
       "enabled": true,
-      "targets": ["signed", "strength", "categorical"],
+      "targets": ["signed"],
       "grid_height": 48,
       "grid_width": 32,
       "hidden_dim": 256,
@@ -24,7 +24,7 @@
     }
   },
   "train": {
-    "output_dir": "runs/convnext_tiny_multiview_geometry_v1",
+    "output_dir": "runs/convnext_tiny_multiview_signed_geometry_v2",
     "epochs": 30,
     "freeze_backbone_epochs": 2,
     "batch_size": 16,
