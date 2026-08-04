@@ -4,9 +4,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from dna_field_sweep_tool import (
     AutomationConfig,
+    WindowsAutomationBackend,
     build_sweep_variants,
     parse_allele_sequence,
     parse_value_sequence,
@@ -101,6 +103,7 @@ class DnaFieldSweepTests(unittest.TestCase):
         )
         config = AutomationConfig(
             paste_button=(10, 20),
+            confirm_button=(30, 40),
             screenshot_region=(30, 40, 500, 300),
             retries=0,
         )
@@ -141,6 +144,163 @@ class DnaFieldSweepTests(unittest.TestCase):
             self.assertEqual(resumed.completed, 3)
             self.assertEqual(resumed.skipped, 3)
             self.assertEqual(resumed_backend.applied, [])
+
+    def test_runner_stops_after_three_identical_unverified_renders(self) -> None:
+        variants = build_sweep_variants(
+            BASE_DNA,
+            "gene_test",
+            ["test_neg"],
+            [0, 128, 255],
+        )
+        config = AutomationConfig(
+            paste_button=(10, 20),
+            confirm_button=(30, 40),
+            screenshot_region=(30, 40, 500, 300),
+            retries=0,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            session_dir = Path(temporary) / "session"
+            prepare_session(session_dir, BASE_DNA, variants, config)
+
+            with self.assertRaisesRegex(RuntimeError, "连续 3 张截图完全相同"):
+                run_sweep(
+                    variants,
+                    session_dir,
+                    FakeBackend(),
+                    retries=0,
+                    identical_render_limit=3,
+                )
+
+            records = [
+                json.loads(line)
+                for line in (session_dir / "manifest.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertEqual(len(records), 2)
+            self.assertTrue(all(record["render_sha256"] for record in records))
+            errors = [
+                json.loads(line)
+                for line in (session_dir / "errors.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ]
+            self.assertIn("疑似后续粘贴未生效", errors[-1]["error"])
+
+    def test_confirmation_button_is_required(self) -> None:
+        config = AutomationConfig(
+            paste_button=(10, 20),
+            screenshot_region=(30, 40, 500, 300),
+        )
+        with self.assertRaisesRegex(ValueError, "确定"):
+            config.validate()
+
+    def test_backend_clicks_paste_then_confirmation(self) -> None:
+        class FakePyAutoGui:
+            class FailSafeException(Exception):
+                pass
+
+            def __init__(self) -> None:
+                self.position = (0, 0)
+                self.clicks: list[tuple[int, int]] = []
+
+            def moveTo(self, x: int, y: int, *, duration: float) -> None:
+                self.position = (x, y)
+
+            def mouseDown(self) -> None:
+                pass
+
+            def mouseUp(self) -> None:
+                self.clicks.append(self.position)
+
+        class FakeClipboard:
+            def copy(self, _value: str) -> None:
+                pass
+
+        config = AutomationConfig(
+            paste_button=(10, 20),
+            confirm_button=(30, 40),
+            screenshot_region=(0, 0, 500, 300),
+            clipboard_delay=0,
+            confirm_delay=0,
+            settle_delay=0,
+            screenshot_delay=0,
+            mouse_move_duration=0,
+            click_hover_delay=0,
+            click_hold_delay=0,
+            inter_variant_delay=0,
+        )
+        backend = object.__new__(WindowsAutomationBackend)
+        backend.config = config
+        backend.pyautogui = FakePyAutoGui()
+        backend.pyperclip = FakeClipboard()
+
+        with patch("dna_field_sweep_tool.time.sleep"):
+            backend.apply_dna(BASE_DNA, "gene_test")
+
+        self.assertEqual(backend.pyautogui.clicks, [(10, 20), (30, 40)])
+
+    def test_verification_polls_until_game_updates_clipboard(self) -> None:
+        class FakePyAutoGui:
+            class FailSafeException(Exception):
+                pass
+
+            def __init__(self) -> None:
+                self.position = (0, 0)
+                self.clicks: list[tuple[int, int]] = []
+
+            def moveTo(self, x: int, y: int, *, duration: float) -> None:
+                self.position = (x, y)
+
+            def mouseDown(self) -> None:
+                pass
+
+            def mouseUp(self) -> None:
+                self.clicks.append(self.position)
+
+        class DelayedClipboard:
+            def __init__(self) -> None:
+                self.value = ""
+                self.paste_count = 0
+
+            def copy(self, value: str) -> None:
+                self.value = value
+                if value.startswith("CK3_DNA_VERIFY_"):
+                    self.paste_count = 0
+
+            def paste(self) -> str:
+                self.paste_count += 1
+                if self.value.startswith("CK3_DNA_VERIFY_") and self.paste_count >= 3:
+                    return BASE_DNA
+                return self.value
+
+        config = AutomationConfig(
+            paste_button=(10, 20),
+            confirm_button=(30, 40),
+            verify_copy_button=(50, 60),
+            screenshot_region=(0, 0, 500, 300),
+            clipboard_delay=0,
+            confirm_delay=0,
+            settle_delay=0,
+            screenshot_delay=0,
+            mouse_move_duration=0,
+            click_hover_delay=0,
+            click_hold_delay=0,
+            verification_timeout=1,
+            inter_variant_delay=0,
+        )
+        backend = object.__new__(WindowsAutomationBackend)
+        backend.config = config
+        backend.pyautogui = FakePyAutoGui()
+        backend.pyperclip = DelayedClipboard()
+
+        backend.apply_dna(BASE_DNA, "gene_test")
+
+        self.assertEqual(
+            backend.pyautogui.clicks,
+            [(10, 20), (30, 40), (50, 60)],
+        )
+        self.assertGreaterEqual(backend.pyperclip.paste_count, 3)
 
 
 if __name__ == "__main__":

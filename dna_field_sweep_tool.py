@@ -22,7 +22,8 @@ from typing import Any, Callable, Protocol, Sequence
 from dna_normalizer import BYTE_MAX, QUOTED_FIELD_RE, parse_dna
 
 
-TOOL_VERSION = 1
+TOOL_VERSION = 2
+SETTINGS_VERSION = 2
 ALLELE_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
@@ -32,6 +33,14 @@ def utc_now() -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def safe_component(value: str, maximum: int = 80) -> str:
@@ -237,23 +246,36 @@ class AutomationConfig:
     confirm_button: tuple[int, int] | None = None
     verify_copy_button: tuple[int, int] | None = None
     clipboard_delay: float = 0.20
-    confirm_delay: float = 0.20
-    settle_delay: float = 1.00
-    screenshot_delay: float = 0.20
+    confirm_delay: float = 0.80
+    settle_delay: float = 1.50
+    screenshot_delay: float = 0.30
+    mouse_move_duration: float = 0.15
+    click_hover_delay: float = 0.20
+    click_hold_delay: float = 0.08
+    verification_timeout: float = 3.00
+    inter_variant_delay: float = 0.50
     retries: int = 1
 
     def validate(self) -> None:
         _left, _top, width, height = self.screenshot_region
         if width <= 0 or height <= 0:
             raise ValueError("截图区域必须是有效的 left, top, width, height")
+        if self.confirm_button is None:
+            raise ValueError("必须记录粘贴 DNA 后弹窗中的“确定”按钮位置")
         for name, value in (
             ("clipboard_delay", self.clipboard_delay),
             ("confirm_delay", self.confirm_delay),
             ("settle_delay", self.settle_delay),
             ("screenshot_delay", self.screenshot_delay),
+            ("mouse_move_duration", self.mouse_move_duration),
+            ("click_hover_delay", self.click_hover_delay),
+            ("click_hold_delay", self.click_hold_delay),
+            ("inter_variant_delay", self.inter_variant_delay),
         ):
             if value < 0:
                 raise ValueError(f"{name} 不能小于 0")
+        if self.verification_timeout <= 0:
+            raise ValueError("verification_timeout 必须大于 0")
         if self.retries < 0:
             raise ValueError("retries 不能小于 0")
 
@@ -288,28 +310,53 @@ class WindowsAutomationBackend:
 
     def _click(self, position: tuple[int, int]) -> None:
         try:
-            self.pyautogui.click(position[0], position[1])
+            # CK3's immediate-mode UI can miss a click when the pointer jumps
+            # from the confirmation dialog to a toolbar icon and presses in the
+            # same frame. Give the game time to establish the hover target, then
+            # send a deliberate press/release pair.
+            self.pyautogui.moveTo(
+                position[0],
+                position[1],
+                duration=self.config.mouse_move_duration,
+            )
+            time.sleep(self.config.click_hover_delay)
+            self.pyautogui.mouseDown()
+            time.sleep(self.config.click_hold_delay)
+            self.pyautogui.mouseUp()
         except self.pyautogui.FailSafeException as error:
             raise EmergencyStop("检测到 PyAutoGUI 安全停止（鼠标位于左上角）") from error
+
+    def _wait_for_copied_dna(self, sentinel: str) -> str:
+        deadline = time.monotonic() + self.config.verification_timeout
+        poll_interval = max(0.05, min(self.config.clipboard_delay, 0.25))
+        while True:
+            copied = self.pyperclip.paste()
+            if copied and copied != sentinel:
+                return copied
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(
+                    "点击复制 DNA 验证按钮后，剪贴板在 "
+                    f"{self.config.verification_timeout:g} 秒内没有更新"
+                )
+            time.sleep(min(poll_interval, remaining))
 
     def apply_dna(self, dna_text: str, field: str) -> None:
         desired = parse_dna(dna_text).genes[field]
         self.pyperclip.copy(dna_text)
         time.sleep(self.config.clipboard_delay)
         self._click(self.config.paste_button)
-        if self.config.confirm_button is not None:
-            time.sleep(self.config.confirm_delay)
-            self._click(self.config.confirm_button)
+        time.sleep(self.config.confirm_delay)
+        assert self.config.confirm_button is not None
+        self._click(self.config.confirm_button)
         time.sleep(self.config.settle_delay)
 
         if self.config.verify_copy_button is not None:
             sentinel = f"CK3_DNA_VERIFY_{time.time_ns()}"
             self.pyperclip.copy(sentinel)
-            self._click(self.config.verify_copy_button)
             time.sleep(self.config.clipboard_delay)
-            copied = self.pyperclip.paste()
-            if not copied or copied == sentinel:
-                raise RuntimeError("点击复制 DNA 验证按钮后，剪贴板没有更新")
+            self._click(self.config.verify_copy_button)
+            copied = self._wait_for_copied_dna(sentinel)
             actual_record = parse_dna(copied)
             actual = actual_record.genes.get(field)
             if actual != desired:
@@ -327,6 +374,7 @@ class WindowsAutomationBackend:
         temporary = path.with_name(path.name + ".partial")
         image.save(temporary, format="PNG")
         os.replace(temporary, path)
+        time.sleep(self.config.inter_variant_delay)
 
 
 def _plan_hash(base_dna: str, variants: Sequence[SweepVariant]) -> str:
@@ -343,13 +391,41 @@ def prepare_session(
     variants: Sequence[SweepVariant],
     automation_config: AutomationConfig,
 ) -> dict[str, Any]:
+    automation_config.validate()
     session_dir.mkdir(parents=True, exist_ok=True)
     plan_hash = _plan_hash(base_dna, variants)
     session_path = session_dir / "session.json"
     if session_path.is_file():
         existing = json.loads(session_path.read_text(encoding="utf-8"))
+        if int(existing.get("version", 0)) < TOOL_VERSION:
+            raise RuntimeError(
+                "该会话由旧版瞬时点击流程创建，completed 截图可能没有实际应用 DNA；"
+                "请新建会话重新扫描"
+            )
         if existing.get("plan_sha256") != plan_hash:
             raise RuntimeError("恢复目录中的 DNA/字段/数值计划与当前设置不一致")
+        previous_automation = existing.get("automation")
+        if (
+            isinstance(previous_automation, dict)
+            and previous_automation.get("confirm_button") is None
+        ):
+            raise RuntimeError(
+                "该旧会话没有设置确认按钮，已有截图可能包含确认弹窗；"
+                "请新建会话重新扫描"
+            )
+        if previous_automation is not None:
+            existing.setdefault("automation_history", []).append(
+                {
+                    "replaced_at": utc_now(),
+                    "settings": previous_automation,
+                }
+            )
+        existing["automation"] = asdict(automation_config)
+        existing["last_resumed_at"] = utc_now()
+        atomic_write_text(
+            session_path,
+            json.dumps(existing, ensure_ascii=False, indent=2) + "\n",
+        )
         return existing
     session = {
         "version": TOOL_VERSION,
@@ -401,6 +477,7 @@ def run_sweep(
     backend: AutomationBackend,
     *,
     retries: int,
+    identical_render_limit: int = 0,
     pause_event: threading.Event | None = None,
     stop_event: threading.Event | None = None,
     on_progress: Callable[[int, int, SweepVariant, str], None] | None = None,
@@ -414,9 +491,19 @@ def run_sweep(
     skipped = 0
     manifest_path = session_dir / "manifest.jsonl"
     error_path = session_dir / "errors.jsonl"
+    previous_render_sha256: str | None = None
+    identical_render_count = 0
 
     for variant in variants:
         if variant.variant_id in completed_ids:
+            completed_render = session_dir / "renders" / f"{variant.variant_id}.png"
+            if completed_render.is_file():
+                completed_hash = sha256_file(completed_render)
+                if completed_hash == previous_render_sha256:
+                    identical_render_count += 1
+                else:
+                    previous_render_sha256 = completed_hash
+                    identical_render_count = 1
             skipped += 1
             completed += 1
             if on_progress:
@@ -432,10 +519,26 @@ def run_sweep(
         atomic_write_text(session_dir / dna_relative, variant.dna_text)
         last_error: Exception | None = None
         started_at = utc_now()
+        render_sha256: str | None = None
+        next_identical_count = identical_render_count
         for attempt in range(int(retries) + 1):
             try:
                 backend.apply_dna(variant.dna_text, variant.field)
                 backend.capture(session_dir / render_relative)
+                render_sha256 = sha256_file(session_dir / render_relative)
+                next_identical_count = (
+                    identical_render_count + 1
+                    if render_sha256 == previous_render_sha256
+                    else 1
+                )
+                if (
+                    identical_render_limit > 0
+                    and next_identical_count >= identical_render_limit
+                ):
+                    raise RuntimeError(
+                        f"连续 {next_identical_count} 张截图完全相同，"
+                        "疑似后续粘贴未生效；请启用 DNA 回读验证或检查点击时序"
+                    )
                 last_error = None
                 break
             except EmergencyStop:
@@ -458,7 +561,8 @@ def run_sweep(
             if on_progress:
                 on_progress(completed, total, variant, "failed")
             raise RuntimeError(
-                f"{variant.variant_id} 连续失败 {int(retries) + 1} 次，已停止"
+                f"{variant.variant_id} 连续失败 {int(retries) + 1} 次，已停止："
+                f"{last_error}"
             ) from last_error
 
         append_jsonl(
@@ -470,8 +574,11 @@ def run_sweep(
                 "completed_at": utc_now(),
                 "dna_path": dna_relative.as_posix(),
                 "render_path": render_relative.as_posix(),
+                "render_sha256": render_sha256,
             },
         )
+        previous_render_sha256 = render_sha256
+        identical_render_count = next_identical_count
         completed += 1
         if on_progress:
             on_progress(completed, total, variant, "completed")
@@ -568,7 +675,7 @@ class DnaFieldSweepApp:
         row = ttk.Frame(automation)
         row.pack(fill="x", padx=6, pady=4)
         self.paste_position = tk.StringVar(value="未设置")
-        self.confirm_position = tk.StringVar(value="未设置（可选）")
+        self.confirm_position = tk.StringVar(value="未设置（必填）")
         self.verify_position = tk.StringVar(value="未设置（可选）")
         self.region_value = tk.StringVar(value="未设置")
         ttk.Button(row, text="记录粘贴 DNA 按钮", command=lambda: self._record_position("paste")).pack(side="left", padx=3)
@@ -580,16 +687,16 @@ class DnaFieldSweepApp:
         row.pack(fill="x", padx=6, pady=4)
         ttk.Button(row, text="记录复制 DNA 验证按钮", command=lambda: self._record_position("verify")).pack(side="left", padx=3)
         ttk.Label(row, textvariable=self.verify_position).pack(side="left", padx=5)
-        ttk.Button(row, text="清除可选按钮", command=self._clear_optional_positions).pack(side="left", padx=8)
+        ttk.Button(row, text="清除验证按钮", command=self._clear_verify_position).pack(side="left", padx=8)
         ttk.Button(row, text="设置截图区域", command=self._record_region).pack(side="left", padx=3)
         ttk.Label(row, textvariable=self.region_value).pack(side="left", padx=5)
 
         row = ttk.Frame(automation)
         row.pack(fill="x", padx=6, pady=4)
         self.clipboard_delay = tk.StringVar(value="0.20")
-        self.confirm_delay = tk.StringVar(value="0.20")
-        self.settle_delay = tk.StringVar(value="1.00")
-        self.screenshot_delay = tk.StringVar(value="0.20")
+        self.confirm_delay = tk.StringVar(value="0.80")
+        self.settle_delay = tk.StringVar(value="1.50")
+        self.screenshot_delay = tk.StringVar(value="0.30")
         self.retries_var = tk.StringVar(value="1")
         for label, variable in (
             ("剪贴板等待", self.clipboard_delay),
@@ -597,6 +704,23 @@ class DnaFieldSweepApp:
             ("脸部刷新等待", self.settle_delay),
             ("截图前等待", self.screenshot_delay),
             ("失败重试", self.retries_var),
+        ):
+            ttk.Label(row, text=label + ":").pack(side="left", padx=(6, 1))
+            ttk.Entry(row, textvariable=variable, width=7).pack(side="left")
+
+        row = ttk.Frame(automation)
+        row.pack(fill="x", padx=6, pady=4)
+        self.mouse_move_duration = tk.StringVar(value="0.15")
+        self.click_hover_delay = tk.StringVar(value="0.20")
+        self.click_hold_delay = tk.StringVar(value="0.08")
+        self.verification_timeout = tk.StringVar(value="3.00")
+        self.inter_variant_delay = tk.StringVar(value="0.50")
+        for label, variable in (
+            ("鼠标移动", self.mouse_move_duration),
+            ("按钮悬停", self.click_hover_delay),
+            ("按住时间", self.click_hold_delay),
+            ("验证超时", self.verification_timeout),
+            ("轮次间隔", self.inter_variant_delay),
         ):
             ttk.Label(row, text=label + ":").pack(side="left", padx=(6, 1))
             ttk.Entry(row, textvariable=variable, width=7).pack(side="left")
@@ -644,6 +768,10 @@ class DnaFieldSweepApp:
 
     def _load_settings(self) -> None:
         value = load_user_settings()
+        try:
+            settings_version = int(value.get("settings_version", 0))
+        except (TypeError, ValueError):
+            settings_version = 0
         self.paste_button = self._tuple_or_none(value.get("paste_button"), 2)
         self.confirm_button = self._tuple_or_none(value.get("confirm_button"), 2)
         self.verify_button = self._tuple_or_none(value.get("verify_button"), 2)
@@ -653,11 +781,29 @@ class DnaFieldSweepApp:
             ("confirm_delay", self.confirm_delay),
             ("settle_delay", self.settle_delay),
             ("screenshot_delay", self.screenshot_delay),
+            ("mouse_move_duration", self.mouse_move_duration),
+            ("click_hover_delay", self.click_hover_delay),
+            ("click_hold_delay", self.click_hold_delay),
+            ("verification_timeout", self.verification_timeout),
+            ("inter_variant_delay", self.inter_variant_delay),
             ("retries", self.retries_var),
             ("output", self.output_var),
         ):
             if key in value:
                 variable.set(str(value[key]))
+        if settings_version < SETTINGS_VERSION:
+            # Version 1 used instant clicks and unsafe 0.2 s UI waits. Preserve
+            # coordinates/output, but migrate timings to the robust minimums.
+            for variable, minimum in (
+                (self.confirm_delay, 0.80),
+                (self.settle_delay, 1.50),
+                (self.screenshot_delay, 0.30),
+            ):
+                try:
+                    current = float(variable.get())
+                except (TypeError, ValueError):
+                    current = minimum
+                variable.set(f"{max(current, minimum):.2f}")
         self._refresh_position_labels()
 
     @staticmethod
@@ -669,6 +815,7 @@ class DnaFieldSweepApp:
     def _save_settings(self) -> None:
         save_user_settings(
             {
+                "settings_version": SETTINGS_VERSION,
                 "paste_button": self.paste_button,
                 "confirm_button": self.confirm_button,
                 "verify_button": self.verify_button,
@@ -677,6 +824,11 @@ class DnaFieldSweepApp:
                 "confirm_delay": self.confirm_delay.get(),
                 "settle_delay": self.settle_delay.get(),
                 "screenshot_delay": self.screenshot_delay.get(),
+                "mouse_move_duration": self.mouse_move_duration.get(),
+                "click_hover_delay": self.click_hover_delay.get(),
+                "click_hold_delay": self.click_hold_delay.get(),
+                "verification_timeout": self.verification_timeout.get(),
+                "inter_variant_delay": self.inter_variant_delay.get(),
                 "retries": self.retries_var.get(),
                 "output": self.output_var.get(),
             }
@@ -684,7 +836,7 @@ class DnaFieldSweepApp:
 
     def _refresh_position_labels(self) -> None:
         self.paste_position.set(str(self.paste_button) if self.paste_button else "未设置")
-        self.confirm_position.set(str(self.confirm_button) if self.confirm_button else "未设置（可选）")
+        self.confirm_position.set(str(self.confirm_button) if self.confirm_button else "未设置（必填）")
         self.verify_position.set(str(self.verify_button) if self.verify_button else "未设置（可选）")
         self.region_value.set(str(self.screenshot_region) if self.screenshot_region else "未设置")
 
@@ -813,8 +965,7 @@ class DnaFieldSweepApp:
         self._refresh_position_labels()
         self._save_settings()
 
-    def _clear_optional_positions(self) -> None:
-        self.confirm_button = None
+    def _clear_verify_position(self) -> None:
         self.verify_button = None
         self._refresh_position_labels()
         self._save_settings()
@@ -822,6 +973,8 @@ class DnaFieldSweepApp:
     def _automation_config(self) -> AutomationConfig:
         if self.paste_button is None:
             raise ValueError("请先记录游戏中的粘贴 DNA 按钮位置")
+        if self.confirm_button is None:
+            raise ValueError("请先记录粘贴后弹窗中的“确定”按钮位置")
         if self.screenshot_region is None:
             raise ValueError("请先设置截图区域")
         try:
@@ -834,6 +987,11 @@ class DnaFieldSweepApp:
                 confirm_delay=float(self.confirm_delay.get()),
                 settle_delay=float(self.settle_delay.get()),
                 screenshot_delay=float(self.screenshot_delay.get()),
+                mouse_move_duration=float(self.mouse_move_duration.get()),
+                click_hover_delay=float(self.click_hover_delay.get()),
+                click_hold_delay=float(self.click_hold_delay.get()),
+                verification_timeout=float(self.verification_timeout.get()),
+                inter_variant_delay=float(self.inter_variant_delay.get()),
                 retries=int(self.retries_var.get()),
             )
         except ValueError as error:
@@ -926,6 +1084,7 @@ class DnaFieldSweepApp:
                     session_dir,
                     backend,
                     retries=config.retries,
+                    identical_render_limit=(3 if config.verify_copy_button is None else 0),
                     pause_event=self.pause_event,
                     stop_event=self.stop_event,
                     on_progress=progress,

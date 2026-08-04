@@ -7,6 +7,9 @@ face_to_ck3_dataset_male_small/
 face_to_ck3_dateset - female large/
 face_to_ck3_dateset - male large/
 
+# 忽略 DNA field sweep 工具运行时的输出
+experiments/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -52,3 +55,4 @@ venv.bak/
 .DS_Store
 Thumbs.db
 .venv-linux/
+.venv-1/
