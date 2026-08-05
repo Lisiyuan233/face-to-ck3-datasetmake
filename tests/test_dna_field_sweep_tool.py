@@ -9,6 +9,7 @@ from unittest.mock import patch
 from dna_field_sweep_tool import (
     AutomationConfig,
     WindowsAutomationBackend,
+    build_field_sweep_plans,
     build_sweep_variants,
     parse_allele_sequence,
     parse_value_sequence,
@@ -93,6 +94,36 @@ class DnaFieldSweepTests(unittest.TestCase):
             ],
         )
         self.assertEqual(len({variant.variant_id for variant in variants}), 4)
+
+    def test_following_fields_use_their_own_base_alleles(self) -> None:
+        plans = build_field_sweep_plans(
+            BASE_DNA,
+            "gene_test",
+            [0, 255],
+            ["test_pos"],
+            include_following_fields=True,
+        )
+
+        self.assertEqual([plan.field for plan in plans], ["gene_test", "gene_other"])
+        self.assertEqual(plans[0].alleles, ("test_pos",))
+        self.assertEqual(plans[1].alleles, ("other_pos",))
+        self.assertEqual(
+            [(variant.allele, variant.value) for variant in plans[1].variants],
+            [("other_pos", 0), ("other_pos", 255)],
+        )
+
+    def test_single_field_plan_does_not_include_following_fields(self) -> None:
+        plans = build_field_sweep_plans(
+            BASE_DNA,
+            "gene_test",
+            [0, 128, 255],
+            ["test_neg"],
+            include_following_fields=False,
+        )
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].field, "gene_test")
+        self.assertEqual(len(plans[0].variants), 3)
 
     def test_runner_saves_manifest_and_resumes_completed_variants(self) -> None:
         variants = build_sweep_variants(

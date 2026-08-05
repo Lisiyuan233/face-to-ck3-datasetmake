@@ -187,6 +187,13 @@ class SweepVariant:
         }
 
 
+@dataclass(frozen=True)
+class FieldSweepPlan:
+    field: str
+    alleles: tuple[str, ...]
+    variants: tuple[SweepVariant, ...]
+
+
 def build_sweep_variants(
     base_dna: str,
     field: str,
@@ -222,6 +229,44 @@ def build_sweep_variants(
                 )
             )
     return variants
+
+
+def build_field_sweep_plans(
+    base_dna: str,
+    start_field: str,
+    values: Sequence[int],
+    first_field_alleles: Sequence[str],
+    *,
+    include_following_fields: bool,
+) -> list[FieldSweepPlan]:
+    """Build one plan per field, using each following field's own alleles."""
+    record = parse_dna(base_dna)
+    fields = list(record.genes)
+    if start_field not in record.genes:
+        raise ValueError("请选择有效 DNA 字段")
+    start_index = fields.index(start_field)
+    selected_fields = fields[start_index:] if include_following_fields else [start_field]
+    plans: list[FieldSweepPlan] = []
+    for field_index, field in enumerate(selected_fields):
+        gene = record.genes[field]
+        if field_index == 0:
+            alleles = parse_allele_sequence(
+                ",".join(first_field_alleles),
+                gene.allele1,
+            )
+        else:
+            # Do not carry the first field's allele name into another field.
+            # Preserve both base alleles if the source DNA is heterozygous.
+            alleles = _deduplicate([gene.allele1, gene.allele2])
+        variants = build_sweep_variants(base_dna, field, alleles, values)
+        plans.append(
+            FieldSweepPlan(
+                field=field,
+                alleles=tuple(alleles),
+                variants=tuple(variants),
+            )
+        )
+    return plans
 
 
 def atomic_write_text(path: Path, value: str) -> None:
@@ -670,6 +715,19 @@ class DnaFieldSweepApp:
         ttk.Label(row, text="留空保持当前；多个用逗号分隔").pack(side="left", padx=5)
         ttk.Button(row, text="预览计划", command=self._preview).pack(side="right", padx=3)
 
+        row = ttk.Frame(sweep_frame)
+        row.pack(fill="x", padx=6, pady=4)
+        self.auto_next_fields_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            row,
+            text="当前字段完成后，自动扫描所有后续字段",
+            variable=self.auto_next_fields_var,
+        ).pack(side="left")
+        ttk.Label(
+            row,
+            text="后续字段自动使用各自基础 DNA 中的 allele；启动前会显示总任务量",
+        ).pack(side="left", padx=10)
+
         automation = ttk.LabelFrame(self.root, text="3. 游戏位置与自动化参数")
         automation.pack(fill="x", padx=10, pady=5)
         row = ttk.Frame(automation)
@@ -791,6 +849,8 @@ class DnaFieldSweepApp:
         ):
             if key in value:
                 variable.set(str(value[key]))
+        if "auto_next_fields" in value:
+            self.auto_next_fields_var.set(bool(value["auto_next_fields"]))
         if settings_version < SETTINGS_VERSION:
             # Version 1 used instant clicks and unsafe 0.2 s UI waits. Preserve
             # coordinates/output, but migrate timings to the robust minimums.
@@ -831,6 +891,7 @@ class DnaFieldSweepApp:
                 "inter_variant_delay": self.inter_variant_delay.get(),
                 "retries": self.retries_var.get(),
                 "output": self.output_var.get(),
+                "auto_next_fields": bool(self.auto_next_fields_var.get()),
             }
         )
 
@@ -909,16 +970,48 @@ class DnaFieldSweepApp:
         alleles = parse_allele_sequence(self.alleles_var.get(), record.genes[field].allele1)
         return build_sweep_variants(base, field, alleles, values)
 
+    def _build_plans(self) -> list[FieldSweepPlan]:
+        base = self._base_dna()
+        record = parse_dna(base)
+        field = self.field_var.get()
+        if field not in record.genes:
+            raise ValueError("请选择有效 DNA 字段")
+        values = parse_value_sequence(self.values_var.get())
+        first_alleles = parse_allele_sequence(
+            self.alleles_var.get(),
+            record.genes[field].allele1,
+        )
+        return build_field_sweep_plans(
+            base,
+            field,
+            values,
+            first_alleles,
+            include_following_fields=bool(self.auto_next_fields_var.get()),
+        )
+
     def _preview(self) -> None:
         try:
-            self.variants = self._build_variants()
+            plans = self._build_plans()
+            self.variants = [variant for plan in plans for variant in plan.variants]
         except Exception as error:
             self.messagebox.showerror("计划无效", str(error))
             return
-        preview = "\n".join(variant.variant_id for variant in self.variants[:8])
-        if len(self.variants) > 8:
-            preview += f"\n... 另有 {len(self.variants) - 8} 个"
-        self.messagebox.showinfo("扫描计划", f"共 {len(self.variants)} 个变体:\n\n{preview}")
+        if len(plans) == 1:
+            preview = "\n".join(variant.variant_id for variant in self.variants[:8])
+            if len(self.variants) > 8:
+                preview += f"\n... 另有 {len(self.variants) - 8} 个"
+        else:
+            preview = "\n".join(
+                f"{index + 1:03d}. {plan.field}: {len(plan.variants)} 个变体 "
+                f"[{', '.join(plan.alleles)}]"
+                for index, plan in enumerate(plans[:12])
+            )
+            if len(plans) > 12:
+                preview += f"\n... 另有 {len(plans) - 12} 个字段"
+        self.messagebox.showinfo(
+            "扫描计划",
+            f"共 {len(plans)} 个字段、{len(self.variants)} 个变体:\n\n{preview}",
+        )
 
     def _import_pyautogui(self) -> Any:
         try:
@@ -1045,15 +1138,69 @@ class DnaFieldSweepApp:
         if self.worker is not None and self.worker.is_alive():
             return
         try:
-            variants = self._build_variants()
+            plans = self._build_plans()
+            variants = [variant for plan in plans for variant in plan.variants]
             config = self._automation_config()
             output_root = Path(self.output_var.get()).expanduser().resolve()
+            if self.session_override is not None and len(plans) > 1:
+                raise ValueError("恢复单字段会话时请关闭“自动扫描所有后续字段”")
+            if len(plans) > 1 and not self.messagebox.askyesno(
+                "确认多字段扫描",
+                f"将从 {plans[0].field} 开始，连续扫描 {len(plans)} 个字段、"
+                f"共 {len(variants)} 个变体。\n\n"
+                "任一字段失败时整批任务会停止。确定开始吗？",
+            ):
+                return
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             if self.session_override is not None:
-                session_dir = self.session_override
+                session_dirs = [self.session_override]
+            elif len(plans) == 1:
+                session_dirs = [
+                    output_root
+                    / f"{timestamp}_{safe_component(plans[0].field)}"
+                ]
             else:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                session_dir = output_root / f"{timestamp}_{safe_component(variants[0].field)}"
-            prepare_session(session_dir, self._base_dna(), variants, config)
+                session_dirs = [
+                    output_root
+                    / f"{timestamp}_{index + 1:03d}_{safe_component(plan.field)}"
+                    for index, plan in enumerate(plans)
+                ]
+
+            base_dna = self._base_dna()
+            for plan, session_dir in zip(plans, session_dirs):
+                prepare_session(session_dir, base_dna, plan.variants, config)
+            if len(plans) > 1:
+                batch_path = output_root / f"{timestamp}_batch.json"
+                atomic_write_text(
+                    batch_path,
+                    json.dumps(
+                        {
+                            "version": TOOL_VERSION,
+                            "created_at": utc_now(),
+                            "base_dna_sha256": sha256_text(base_dna),
+                            "field_count": len(plans),
+                            "variant_count": len(variants),
+                            "fields": [
+                                {
+                                    "index": index + 1,
+                                    "field": plan.field,
+                                    "alleles": list(plan.alleles),
+                                    "variant_count": len(plan.variants),
+                                    "session_path": session_dir.name,
+                                }
+                                for index, (plan, session_dir) in enumerate(
+                                    zip(plans, session_dirs)
+                                )
+                            ],
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                )
+            else:
+                batch_path = None
             backend = WindowsAutomationBackend(config)
             self._save_settings()
         except Exception as error:
@@ -1063,31 +1210,81 @@ class DnaFieldSweepApp:
         self.variants = variants
         self.stop_event.clear()
         self.pause_event.clear()
-        self.progress.configure(maximum=max(1, len(variants)))
+        self.progress.configure(maximum=max(1, len(self.variants)))
         self.progress_var.set(0)
         self.start_button.configure(state="disabled")
         self.pause_button.configure(state="normal", text="暂停")
         self.stop_button.configure(state="normal")
-        self._log(f"会话目录: {session_dir}")
-        self._log(f"开始扫描 {variants[0].field}，共 {len(variants)} 个变体")
-
-        def progress(done: int, total: int, variant: SweepVariant, status: str) -> None:
-            self.root.after(
-                0,
-                lambda d=done, t=total, v=variant, s=status: self._update_progress(d, t, v, s),
-            )
+        if batch_path is not None:
+            self._log(f"批次清单: {batch_path}")
+            self._log(f"开始连续扫描 {len(plans)} 个字段，共 {len(variants)} 个变体")
+        else:
+            self._log(f"会话目录: {session_dirs[0]}")
+            self._log(f"开始扫描 {plans[0].field}，共 {len(variants)} 个变体")
 
         def worker() -> None:
             try:
-                result = run_sweep(
-                    variants,
-                    session_dir,
-                    backend,
-                    retries=config.retries,
-                    identical_render_limit=(3 if config.verify_copy_button is None else 0),
-                    pause_event=self.pause_event,
-                    stop_event=self.stop_event,
-                    on_progress=progress,
+                batch_completed = 0
+                batch_skipped = 0
+                field_offset = 0
+                stopped = False
+                for field_index, (plan, session_dir) in enumerate(
+                    zip(plans, session_dirs),
+                    1,
+                ):
+                    if self.stop_event.is_set():
+                        stopped = True
+                        break
+                    self.root.after(
+                        0,
+                        lambda i=field_index, p=plan, d=session_dir: self._field_started(
+                            i,
+                            len(plans),
+                            p,
+                            d,
+                        ),
+                    )
+
+                    def progress(
+                        done: int,
+                        _field_total: int,
+                        variant: SweepVariant,
+                        status: str,
+                        *,
+                        offset: int = field_offset,
+                    ) -> None:
+                        self.root.after(
+                            0,
+                            lambda d=offset + done, v=variant, s=status: self._update_progress(
+                                d,
+                                len(variants),
+                                v,
+                                s,
+                            ),
+                        )
+
+                    field_result = run_sweep(
+                        plan.variants,
+                        session_dir,
+                        backend,
+                        retries=config.retries,
+                        identical_render_limit=(
+                            3 if config.verify_copy_button is None else 0
+                        ),
+                        pause_event=self.pause_event,
+                        stop_event=self.stop_event,
+                        on_progress=progress,
+                    )
+                    batch_completed += field_result.completed
+                    batch_skipped += field_result.skipped
+                    field_offset += len(plan.variants)
+                    if field_result.stopped:
+                        stopped = True
+                        break
+                result = SweepResult(
+                    completed=batch_completed,
+                    skipped=batch_skipped,
+                    stopped=stopped,
                 )
             except Exception as error:
                 self.root.after(0, lambda e=error: self._finish(error=e))
@@ -1096,6 +1293,20 @@ class DnaFieldSweepApp:
 
         self.worker = threading.Thread(target=worker, daemon=True)
         self.worker.start()
+
+    def _field_started(
+        self,
+        index: int,
+        total: int,
+        plan: FieldSweepPlan,
+        session_dir: Path,
+    ) -> None:
+        self.field_var.set(plan.field)
+        self._field_selected()
+        self._log(
+            f"字段 {index}/{total}: {plan.field}，{len(plan.variants)} 个变体；"
+            f"会话目录: {session_dir}"
+        )
 
     def _update_progress(self, done: int, total: int, variant: SweepVariant, status: str) -> None:
         self.progress_var.set(done)
