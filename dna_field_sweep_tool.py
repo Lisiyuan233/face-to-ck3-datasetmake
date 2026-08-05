@@ -330,7 +330,7 @@ class EmergencyStop(RuntimeError):
 
 
 class AutomationBackend(Protocol):
-    def apply_dna(self, dna_text: str, field: str) -> None: ...
+    def apply_dna(self, dna_text: str, field: str | None) -> None: ...
 
     def capture(self, path: Path) -> None: ...
 
@@ -353,7 +353,12 @@ class WindowsAutomationBackend:
         self.pyautogui.FAILSAFE = True
         self.pyautogui.PAUSE = 0.05
 
-    def _click(self, position: tuple[int, int]) -> None:
+    def _click(
+        self,
+        position: tuple[int, int],
+        *,
+        hover_delay: float | None = None,
+    ) -> None:
         try:
             # CK3's immediate-mode UI can miss a click when the pointer jumps
             # from the confirmation dialog to a toolbar icon and presses in the
@@ -364,12 +369,29 @@ class WindowsAutomationBackend:
                 position[1],
                 duration=self.config.mouse_move_duration,
             )
-            time.sleep(self.config.click_hover_delay)
+            time.sleep(
+                self.config.click_hover_delay
+                if hover_delay is None
+                else hover_delay
+            )
             self.pyautogui.mouseDown()
             time.sleep(self.config.click_hold_delay)
             self.pyautogui.mouseUp()
         except self.pyautogui.FailSafeException as error:
             raise EmergencyStop("检测到 PyAutoGUI 安全停止（鼠标位于左上角）") from error
+
+    def _park_mouse(self) -> None:
+        """Move away from toolbar controls so CK3 cannot pin a tooltip."""
+        left, top, width, height = self.config.screenshot_region
+        position = (left + width // 2, top + height // 2)
+        try:
+            self.pyautogui.moveTo(
+                position[0],
+                position[1],
+                duration=min(self.config.mouse_move_duration, 0.10),
+            )
+        except self.pyautogui.FailSafeException as error:
+            raise EmergencyStop("PyAutoGUI failsafe triggered while parking the mouse") from error
 
     def _wait_for_copied_dna(self, sentinel: str) -> str:
         deadline = time.monotonic() + self.config.verification_timeout
@@ -386,8 +408,11 @@ class WindowsAutomationBackend:
                 )
             time.sleep(min(poll_interval, remaining))
 
-    def apply_dna(self, dna_text: str, field: str) -> None:
-        desired = parse_dna(dna_text).genes[field]
+    def apply_dna(self, dna_text: str, field: str | None) -> None:
+        desired_record = parse_dna(dna_text)
+        if field is not None and field not in desired_record.genes:
+            raise ValueError(f"DNA 中不存在验证字段: {field}")
+        desired = desired_record.genes.get(field) if field is not None else None
         self.pyperclip.copy(dna_text)
         time.sleep(self.config.clipboard_delay)
         self._click(self.config.paste_button)
@@ -400,14 +425,41 @@ class WindowsAutomationBackend:
             sentinel = f"CK3_DNA_VERIFY_{time.time_ns()}"
             self.pyperclip.copy(sentinel)
             time.sleep(self.config.clipboard_delay)
-            self._click(self.config.verify_copy_button)
+            # Clipboard polling can take several seconds. Leave the copy button
+            # immediately so its tooltip cannot remain over the paste button.
+            self._click(
+                self.config.verify_copy_button,
+                hover_delay=min(self.config.click_hover_delay, 0.05),
+            )
+            self._park_mouse()
             copied = self._wait_for_copied_dna(sentinel)
             actual_record = parse_dna(copied)
-            actual = actual_record.genes.get(field)
-            if actual != desired:
+            if field is None and actual_record != desired_record:
+                changed_genes = [
+                    key
+                    for key in sorted(set(desired_record.genes) | set(actual_record.genes))
+                    if desired_record.genes.get(key) != actual_record.genes.get(key)
+                ]
+                changed_colors = [
+                    key
+                    for key in sorted(set(desired_record.colors) | set(actual_record.colors))
+                    if desired_record.colors.get(key) != actual_record.colors.get(key)
+                ]
+                details = []
+                if changed_genes:
+                    details.append("genes=" + ",".join(changed_genes[:5]))
+                if changed_colors:
+                    details.append("colors=" + ",".join(changed_colors[:5]))
                 raise RuntimeError(
-                    f"游戏内 DNA 校验失败: {field} 期望 {desired}，实际 {actual}"
+                    "游戏内完整 DNA 校验失败"
+                    + (": " + "; ".join(details) if details else "")
                 )
+            if field is not None:
+                actual = actual_record.genes.get(field)
+                if actual != desired:
+                    raise RuntimeError(
+                        f"游戏内 DNA 校验失败: {field} 期望 {desired}，实际 {actual}"
+                    )
 
     def capture(self, path: Path) -> None:
         time.sleep(self.config.screenshot_delay)
@@ -646,6 +698,46 @@ def load_user_settings() -> dict[str, Any]:
         return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def automation_config_from_settings(value: dict[str, Any]) -> AutomationConfig:
+    """Build the desktop automation config used by non-GUI batch runners."""
+
+    def required_tuple(name: str, length: int) -> tuple[int, ...]:
+        raw = value.get(name)
+        if not isinstance(raw, (list, tuple)) or len(raw) != length:
+            raise ValueError(f"自动化设置缺少有效的 {name}")
+        return tuple(int(item) for item in raw)
+
+    def optional_tuple(name: str, length: int) -> tuple[int, ...] | None:
+        raw = value.get(name)
+        if raw is None:
+            return None
+        if not isinstance(raw, (list, tuple)) or len(raw) != length:
+            raise ValueError(f"自动化设置中的 {name} 无效")
+        return tuple(int(item) for item in raw)
+
+    try:
+        config = AutomationConfig(
+            paste_button=required_tuple("paste_button", 2),
+            confirm_button=required_tuple("confirm_button", 2),
+            verify_copy_button=optional_tuple("verify_button", 2),
+            screenshot_region=required_tuple("screenshot_region", 4),
+            clipboard_delay=float(value.get("clipboard_delay", 0.20)),
+            confirm_delay=float(value.get("confirm_delay", 0.80)),
+            settle_delay=float(value.get("settle_delay", 1.50)),
+            screenshot_delay=float(value.get("screenshot_delay", 0.30)),
+            mouse_move_duration=float(value.get("mouse_move_duration", 0.15)),
+            click_hover_delay=float(value.get("click_hover_delay", 0.20)),
+            click_hold_delay=float(value.get("click_hold_delay", 0.08)),
+            verification_timeout=float(value.get("verification_timeout", 3.00)),
+            inter_variant_delay=float(value.get("inter_variant_delay", 0.50)),
+            retries=int(value.get("retries", 1)),
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("自动化设置中的坐标、延迟或重试次数无效") from error
+    config.validate()
+    return config
 
 
 def save_user_settings(value: dict[str, Any]) -> None:

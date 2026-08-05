@@ -1,5 +1,8 @@
 # CK3 DNA 单字段扫描与截图工具
 
+> 17 个基础脸、schema 正负/class 全展开和穿插 baseline 的正式第一阶段流程，
+> 请使用 [`DNA_IDENTIFIABILITY.md`](DNA_IDENTIFIABILITY.md) 中的新生成器与批量 runner。
+
 [`dna_field_sweep_tool.py`](dna_field_sweep_tool.py) 用于受控改变一份 CK3
 DNA 中的单个 gene，把每个变体粘贴到游戏，并依次保存截图和精确对应的
 DNA 文本。它适合生成 DNA 字段可辨识度实验数据，不会修改原有的
@@ -42,6 +45,8 @@ PyAutoGUI 启用了安全停止。自动化过程中把鼠标快速移到主屏�
 
 默认时序已经针对 CK3 的按钮响应做了加固：鼠标会先移动到按钮并悬停，再用
 短暂的按下/松开完成点击；确认弹窗等待 `0.8` 秒，脸部刷新等待 `1.5` 秒，
+复制 DNA 校验按钮只会短暂悬停；点击后鼠标会立即移到截图区域中央，避免
+tooltip 固定后遮住下一轮的粘贴按钮。
 相邻变体之间等待 `0.5` 秒。不要为了提高速度把这些参数直接降回 `0.2` 秒。
 
 所有位置和延迟保存在 `%APPDATA%/CK3DNAFieldSweep/settings.json`，不会写入
