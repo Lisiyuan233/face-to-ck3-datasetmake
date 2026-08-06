@@ -1,0 +1,37 @@
+{
+  "analysis_version": 1,
+  "experiment_dir": "D:\\workspace\\face-to-ck3-datasetmake\\experiments\\dna_identifiability",
+  "render_count": 8908,
+  "base_count": 17,
+  "field_count": 83,
+  "class_or_sign_count": 173,
+  "feature_size": [
+    400,
+    264
+  ],
+  "metrics": [
+    "ssim",
+    "edge",
+    "highpass"
+  ],
+  "detection_snr": 1.0,
+  "tier_counts": {
+    "T1": 50,
+    "T2": 21,
+    "T3": 11,
+    "T4": 1
+  },
+  "heatmap_count": 83,
+  "limitations": [
+    "fixed_regions_are_not_landmark_aligned",
+    "no_frozen_learned_visual_features_available",
+    "local_geometry_edges_can_contribute_to_texture_distance",
+    "per_crop_standardization_suppresses_global_exposure_drift"
+  ],
+  "outputs": {
+    "fields": "local_texture_identifiability.csv",
+    "classes": "local_texture_class_metrics.csv",
+    "noise": "local_texture_noise.csv",
+    "heatmaps": "texture_heatmap_index.json"
+  }
+}

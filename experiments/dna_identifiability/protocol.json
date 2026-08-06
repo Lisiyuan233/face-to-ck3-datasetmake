@@ -1,0 +1,52 @@
+{
+  "protocol_version": 1,
+  "created_at": "2026-08-05T13:53:57.897612+00:00",
+  "stage": 1,
+  "plan_sha256": "6bee8dc232ca8af18b7d2a7d99ca3a44891bb0506b75bf6090e6ec857416cf4f",
+  "schema_path": "D:\\workspace\\face-to-ck3-datasetmake\\face_to_ck3_dataset_male_small\\dna_schema.json",
+  "schema_sha256": "67d3985195574aec3bf9a71943c524efde8a2790f53312138f942bf3e1d786b3",
+  "base_count": 17,
+  "race_groups": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ],
+  "signed_field_count": 67,
+  "categorical_field_count": 16,
+  "categorical_class_count": 39,
+  "strengths": [
+    0,
+    128,
+    255
+  ],
+  "signed_variants_per_base": 402,
+  "categorical_variants_per_base": 117,
+  "field_variants_per_base": 519,
+  "baseline_repeats_per_base": 5,
+  "variants_per_base": 524,
+  "total_variants": 8908,
+  "baseline_schedule": "evenly_interleaved_including_start_and_end",
+  "verification_policy": "schema_fields_and_colors_round_trip_required",
+  "paths": {
+    "bases": "bases.jsonl",
+    "variants": "variants.jsonl",
+    "dna": "dna",
+    "renders": "renders",
+    "render_manifest": "render_manifest.jsonl",
+    "errors": "errors.jsonl"
+  }
+}

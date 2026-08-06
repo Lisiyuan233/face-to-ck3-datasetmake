@@ -1,0 +1,583 @@
+{
+  "face_detail_cheek_def": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.765,
+    "source_head_weight": 0.765,
+    "merged_head_weight": ""
+  },
+  "face_detail_cheek_fat": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.988,
+    "source_head_weight": 0.988,
+    "merged_head_weight": ""
+  },
+  "face_detail_chin_cleft": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.412,
+    "source_head_weight": 0.412,
+    "merged_head_weight": ""
+  },
+  "face_detail_chin_def": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.412,
+    "source_head_weight": 0.412,
+    "merged_head_weight": ""
+  },
+  "face_detail_eye_lower_lid_def": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.441,
+    "source_head_weight": 0.441,
+    "merged_head_weight": ""
+  },
+  "face_detail_eye_socket": {
+    "tier": "D",
+    "strategy": "group_similar_classes_plus_strength",
+    "recommended_weight": 0.588,
+    "source_head_weight": 0.588,
+    "merged_head_weight": ""
+  },
+  "face_detail_nasolabial": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.912,
+    "source_head_weight": 0.912,
+    "merged_head_weight": ""
+  },
+  "face_detail_nose_ridge_def": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.676,
+    "source_head_weight": 0.676,
+    "merged_head_weight": ""
+  },
+  "face_detail_nose_tip_def": {
+    "tier": "B",
+    "strategy": "strength_only",
+    "recommended_weight": 0.588,
+    "source_head_weight": 0.0,
+    "merged_head_weight": ""
+  },
+  "face_detail_temple_def": {
+    "tier": "C",
+    "strategy": "strength_only",
+    "recommended_weight": 0.412,
+    "source_head_weight": 0.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_cheek_forward": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_cheek_height": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_cheek_width": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_ear_angle": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.941,
+    "source_head_weight": 0.941,
+    "merged_head_weight": ""
+  },
+  "gene_bs_ear_bend": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.765,
+    "source_head_weight": 0.765,
+    "merged_head_weight": ""
+  },
+  "gene_bs_ear_inner_shape": {
+    "tier": "C",
+    "strategy": "strength_only",
+    "recommended_weight": 0.471,
+    "source_head_weight": 0.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_ear_outward": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.794,
+    "source_head_weight": 0.794,
+    "merged_head_weight": ""
+  },
+  "gene_bs_ear_size": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.853,
+    "source_head_weight": 0.853,
+    "merged_head_weight": ""
+  },
+  "gene_bs_eye_corner_depth": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.853,
+    "source_head_weight": 0.853,
+    "merged_head_weight": ""
+  },
+  "gene_bs_eye_fold_shape": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.784,
+    "source_head_weight": 0.784,
+    "merged_head_weight": ""
+  },
+  "gene_bs_eye_size": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.912,
+    "source_head_weight": 0.912,
+    "merged_head_weight": ""
+  },
+  "gene_bs_eye_upper_lid_size": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.735,
+    "source_head_weight": 0.735,
+    "merged_head_weight": ""
+  },
+  "gene_bs_forehead_brow_curve": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_forehead_brow_forward": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_forehead_brow_inner_height": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_forehead_brow_outer_height": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_forehead_brow_width": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_jaw_def": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.647,
+    "source_head_weight": 0.647,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_lower_lip_def": {
+    "tier": "C",
+    "strategy": "strength_only",
+    "recommended_weight": 0.471,
+    "source_head_weight": 0.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_lower_lip_full": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.471,
+    "source_head_weight": 0.471,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_lower_lip_pad": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.471,
+    "source_head_weight": 0.471,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_lower_lip_width": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.441,
+    "source_head_weight": 0.441,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_philtrum_def": {
+    "tier": "C",
+    "strategy": "strength_only",
+    "recommended_weight": 0.353,
+    "source_head_weight": 0.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_philtrum_shape": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.353,
+    "source_head_weight": 0.353,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_philtrum_width": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.353,
+    "source_head_weight": 0.353,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_upper_lip_def": {
+    "tier": "C",
+    "strategy": "strength_only",
+    "recommended_weight": 0.471,
+    "source_head_weight": 0.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_upper_lip_full": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.412,
+    "source_head_weight": 0.412,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_upper_lip_profile": {
+    "tier": "C",
+    "strategy": "conditioned_local_head",
+    "recommended_weight": 0.412,
+    "source_head_weight": 0.412,
+    "merged_head_weight": ""
+  },
+  "gene_bs_mouth_upper_lip_width": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.647,
+    "source_head_weight": 0.647,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_forward": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_height": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_length": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_nostril_height": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.618,
+    "source_head_weight": 0.618,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_nostril_width": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.882,
+    "source_head_weight": 0.882,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_profile": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.853,
+    "source_head_weight": 0.853,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_ridge_angle": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_ridge_width": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.794,
+    "source_head_weight": 0.794,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_size": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.971,
+    "source_head_weight": 0.971,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_tip_angle": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.941,
+    "source_head_weight": 0.941,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_tip_forward": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 0.824,
+    "source_head_weight": 0.824,
+    "merged_head_weight": ""
+  },
+  "gene_bs_nose_tip_width": {
+    "tier": "B",
+    "strategy": "local_region_head",
+    "recommended_weight": 0.647,
+    "source_head_weight": 0.647,
+    "merged_head_weight": ""
+  },
+  "gene_chin_forward": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 0.941,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 0.941
+  },
+  "gene_chin_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_chin_width": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 0.971,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 0.971
+  },
+  "gene_eye_angle": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_eye_depth": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_eye_distance": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_eye_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_eye_shut": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 0.971,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 0.971
+  },
+  "gene_forehead_angle": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_forehead_brow_height": {
+    "tier": "A",
+    "strategy": "independent_prediction",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_forehead_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_forehead_roundness": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_forehead_width": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_head_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_head_profile": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_head_top_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_head_top_width": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_head_width": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_jaw_angle": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_jaw_forward": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_jaw_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_jaw_width": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_mouth_corner_depth": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_mouth_corner_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_mouth_forward": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_mouth_height": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_mouth_lower_lip_size": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_mouth_open": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_mouth_upper_lip_size": {
+    "tier": "C",
+    "strategy": "piecewise_signed_with_visibility_mask",
+    "recommended_weight": 1.0,
+    "source_head_weight": 1.0,
+    "merged_head_weight": ""
+  },
+  "gene_mouth_width": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_neck_length": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  },
+  "gene_neck_width": {
+    "tier": "D",
+    "strategy": "merge_alleles_scalar",
+    "recommended_weight": 1.0,
+    "source_head_weight": 0.0,
+    "merged_head_weight": 1.0
+  }
+}

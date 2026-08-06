@@ -1,0 +1,238 @@
+ruler_designer_699673197={
+
+	type=male
+
+	id=0
+
+	random_seed=0
+
+	genes={ 		hair_color={ 30 243 30 243 }
+
+ 		skin_color={ 202 147 202 147 }
+
+ 		eye_color={ 83 248 83 248 }
+
+ 		gene_chin_forward={ "chin_forward_neg" 99 "chin_forward_neg" 99 }
+
+ 		gene_chin_height={ "chin_height_pos" 123 "chin_height_pos" 123 }
+
+ 		gene_chin_width={ "chin_width_neg" 99 "chin_width_neg" 99 }
+
+ 		gene_eye_angle={ "eye_angle_pos" 131 "eye_angle_pos" 131 }
+
+ 		gene_eye_depth={ "eye_depth_neg" 115 "eye_depth_neg" 115 }
+
+ 		gene_eye_height={ "eye_height_neg" 127 "eye_height_neg" 127 }
+
+ 		gene_eye_distance={ "eye_distance_neg" 122 "eye_distance_neg" 122 }
+
+ 		gene_eye_shut={ "eye_shut_pos" 144 "eye_shut_pos" 144 }
+
+ 		gene_forehead_angle={ "forehead_angle_pos" 158 "forehead_angle_pos" 158 }
+
+ 		gene_forehead_brow_height={ "forehead_brow_height_pos" 138 "forehead_brow_height_pos" 138 }
+
+ 		gene_forehead_roundness={ "forehead_roundness_pos" 142 "forehead_roundness_pos" 142 }
+
+ 		gene_forehead_width={ "forehead_width_pos" 146 "forehead_width_pos" 146 }
+
+ 		gene_forehead_height={ "forehead_height_neg" 114 "forehead_height_neg" 114 }
+
+ 		gene_head_height={ "head_height_neg" 97 "head_height_neg" 97 }
+
+ 		gene_head_width={ "head_width_pos" 142 "head_width_pos" 142 }
+
+ 		gene_head_profile={ "head_profile_neg" 65 "head_profile_neg" 65 }
+
+ 		gene_head_top_height={ "head_top_height_pos" 140 "head_top_height_pos" 140 }
+
+ 		gene_head_top_width={ "head_top_width_pos" 163 "head_top_width_pos" 163 }
+
+ 		gene_jaw_angle={ "jaw_angle_pos" 146 "jaw_angle_pos" 146 }
+
+ 		gene_jaw_forward={ "jaw_forward_neg" 121 "jaw_forward_neg" 121 }
+
+ 		gene_jaw_height={ "jaw_height_neg" 107 "jaw_height_neg" 107 }
+
+ 		gene_jaw_width={ "jaw_width_pos" 172 "jaw_width_pos" 172 }
+
+ 		gene_mouth_corner_depth={ "mouth_corner_depth_neg" 126 "mouth_corner_depth_neg" 126 }
+
+ 		gene_mouth_corner_height={ "mouth_corner_height_neg" 114 "mouth_corner_height_neg" 114 }
+
+ 		gene_mouth_forward={ "mouth_forward_neg" 118 "mouth_forward_neg" 118 }
+
+ 		gene_mouth_height={ "mouth_height_neg" 95 "mouth_height_neg" 95 }
+
+ 		gene_mouth_width={ "mouth_width_neg" 112 "mouth_width_neg" 112 }
+
+ 		gene_mouth_upper_lip_size={ "mouth_upper_lip_size_pos" 127 "mouth_upper_lip_size_pos" 127 }
+
+ 		gene_mouth_lower_lip_size={ "mouth_lower_lip_size_pos" 136 "mouth_lower_lip_size_pos" 136 }
+
+ 		gene_mouth_open={ "mouth_open_neg" 5 "mouth_open_neg" 5 }
+
+ 		gene_neck_length={ "neck_length_pos" 135 "neck_length_pos" 135 }
+
+ 		gene_neck_width={ "neck_width_pos" 143 "neck_width_pos" 143 }
+
+ 		gene_bs_cheek_forward={ "cheek_forward_neg" 23 "cheek_forward_neg" 23 }
+
+ 		gene_bs_cheek_height={ "cheek_height_pos" 0 "cheek_height_pos" 0 }
+
+ 		gene_bs_cheek_width={ "cheek_width_pos" 39 "cheek_width_pos" 39 }
+
+ 		gene_bs_ear_angle={ "ear_angle_neg" 18 "ear_angle_neg" 18 }
+
+ 		gene_bs_ear_inner_shape={ "ear_inner_shape_pos" 51 "ear_inner_shape_pos" 51 }
+
+ 		gene_bs_ear_bend={ "ear_upper_bend_pos" 175 "ear_upper_bend_pos" 175 }
+
+ 		gene_bs_ear_outward={ "ear_outward_pos" 7 "ear_outward_pos" 7 }
+
+ 		gene_bs_ear_size={ "ear_size_neg" 50 "ear_size_neg" 50 }
+
+ 		gene_bs_eye_corner_depth={ "eye_corner_depth_neg" 121 "eye_corner_depth_neg" 121 }
+
+ 		gene_bs_eye_fold_shape={ "eye_fold_shape_neg" 79 "eye_fold_shape_neg" 79 }
+
+ 		gene_bs_eye_size={ "eye_size_pos" 7 "eye_size_pos" 7 }
+
+ 		gene_bs_eye_upper_lid_size={ "eye_upper_lid_size_neg" 195 "eye_upper_lid_size_neg" 195 }
+
+ 		gene_bs_forehead_brow_curve={ "forehead_brow_curve_neg" 38 "forehead_brow_curve_neg" 38 }
+
+ 		gene_bs_forehead_brow_forward={ "forehead_brow_forward_neg" 36 "forehead_brow_forward_neg" 36 }
+
+ 		gene_bs_forehead_brow_inner_height={ "forehead_brow_inner_height_neg" 26 "forehead_brow_inner_height_neg" 26 }
+
+ 		gene_bs_forehead_brow_outer_height={ "forehead_brow_outer_height_pos" 10 "forehead_brow_outer_height_pos" 10 }
+
+ 		gene_bs_forehead_brow_width={ "forehead_brow_width_pos" 26 "forehead_brow_width_pos" 26 }
+
+ 		gene_bs_jaw_def={ "jaw_def_neg" 194 "jaw_def_neg" 194 }
+
+ 		gene_bs_mouth_lower_lip_def={ "mouth_lower_lip_def_pos" 40 "mouth_lower_lip_def_pos" 40 }
+
+ 		gene_bs_mouth_lower_lip_full={ "mouth_lower_lip_full_neg" 41 "mouth_lower_lip_full_neg" 41 }
+
+ 		gene_bs_mouth_lower_lip_pad={ "mouth_lower_lip_pad_neg" 137 "mouth_lower_lip_pad_neg" 137 }
+
+ 		gene_bs_mouth_lower_lip_width={ "mouth_lower_lip_width_pos" 26 "mouth_lower_lip_width_pos" 26 }
+
+ 		gene_bs_mouth_philtrum_def={ "mouth_philtrum_def_pos" 46 "mouth_philtrum_def_pos" 46 }
+
+ 		gene_bs_mouth_philtrum_shape={ "mouth_philtrum_shape_pos" 93 "mouth_philtrum_shape_pos" 93 }
+
+ 		gene_bs_mouth_philtrum_width={ "mouth_philtrum_width_neg" 15 "mouth_philtrum_width_neg" 15 }
+
+ 		gene_bs_mouth_upper_lip_def={ "mouth_upper_lip_def_pos" 5 "mouth_upper_lip_def_pos" 5 }
+
+ 		gene_bs_mouth_upper_lip_full={ "mouth_upper_lip_full_pos" 16 "mouth_upper_lip_full_pos" 16 }
+
+ 		gene_bs_mouth_upper_lip_profile={ "mouth_upper_lip_profile_neg" 9 "mouth_upper_lip_profile_neg" 9 }
+
+ 		gene_bs_mouth_upper_lip_width={ "mouth_upper_lip_width_neg" 102 "mouth_upper_lip_width_neg" 102 }
+
+ 		gene_bs_nose_forward={ "nose_forward_pos" 32 "nose_forward_pos" 32 }
+
+ 		gene_bs_nose_height={ "nose_height_neg" 52 "nose_height_neg" 52 }
+
+ 		gene_bs_nose_length={ "nose_length_neg" 32 "nose_length_neg" 32 }
+
+ 		gene_bs_nose_nostril_height={ "nose_nostril_height_neg" 52 "nose_nostril_height_neg" 52 }
+
+ 		gene_bs_nose_nostril_width={ "nose_nostril_width_pos" 36 "nose_nostril_width_pos" 36 }
+
+ 		gene_bs_nose_profile={ "nose_profile_pos" 38 "nose_profile_pos" 38 }
+
+ 		gene_bs_nose_ridge_angle={ "nose_ridge_angle_pos" 28 "nose_ridge_angle_pos" 28 }
+
+ 		gene_bs_nose_ridge_width={ "nose_ridge_width_neg" 29 "nose_ridge_width_neg" 29 }
+
+ 		gene_bs_nose_size={ "nose_size_pos" 95 "nose_size_pos" 95 }
+
+ 		gene_bs_nose_tip_angle={ "nose_tip_angle_pos" 34 "nose_tip_angle_pos" 34 }
+
+ 		gene_bs_nose_tip_forward={ "nose_tip_forward_neg" 87 "nose_tip_forward_neg" 87 }
+
+ 		gene_bs_nose_tip_width={ "nose_tip_width_pos" 4 "nose_tip_width_pos" 4 }
+
+ 		face_detail_cheek_def={ "cheek_def_01" 86 "cheek_def_01" 86 }
+
+ 		face_detail_cheek_fat={ "cheek_fat_01_pos" 30 "cheek_fat_01_pos" 30 }
+
+ 		face_detail_chin_cleft={ "chin_dimple" 12 "chin_dimple" 12 }
+
+ 		face_detail_chin_def={ "chin_def_neg" 61 "chin_def_neg" 61 }
+
+ 		face_detail_eye_lower_lid_def={ "eye_lower_lid_def_02" 204 "eye_lower_lid_def_02" 204 }
+
+ 		face_detail_eye_socket={ "eye_socket_03" 22 "eye_socket_03" 22 }
+
+ 		face_detail_nasolabial={ "nasolabial_03" 14 "nasolabial_03" 14 }
+
+ 		face_detail_nose_ridge_def={ "nose_ridge_def_neg" 11 "nose_ridge_def_neg" 11 }
+
+ 		face_detail_nose_tip_def={ "nose_tip_def" 11 "nose_tip_def" 11 }
+
+ 		face_detail_temple_def={ "temple_def" 0 "temple_def" 0 }
+
+ 		expression_brow_wrinkles={ "brow_wrinkles_01" 11 "brow_wrinkles_01" 11 }
+
+ 		expression_eye_wrinkles={ "eye_wrinkles_01" 67 "eye_wrinkles_01" 67 }
+
+ 		expression_forehead_wrinkles={ "forehead_wrinkles_01" 59 "forehead_wrinkles_01" 59 }
+
+ 		expression_other={ "cheek_wrinkles_both_01" 0 "cheek_wrinkles_both_01" 0 }
+
+ 		complexion={ "complexion_1" 180 "complexion_1" 180 }
+
+ 		gene_height={ "normal_height" 122 "normal_height" 122 }
+
+ 		gene_bs_body_type={ "body_fat_head_fat_full" 145 "body_fat_head_fat_full" 145 }
+
+ 		gene_bs_body_shape={ "body_shape_rectangle_half" 28 "body_shape_rectangle_half" 3 }
+
+ 		gene_bs_bust={ "bust_clothes" 120 "bust_shape_2_half" 151 }
+
+ 		gene_age={ "old_1" 170 "old_1" 170 }
+
+ 		gene_eyebrows_shape={ "avg_spacing_low_thickness" 171 "avg_spacing_low_thickness" 171 }
+
+ 		gene_eyebrows_fullness={ "layer_2_avg_thickness" 241 "layer_2_avg_thickness" 241 }
+
+ 		gene_body_hair={ "body_hair_sparse_lower_stubble" 90 "body_hair_sparse_lower_stubble" 90 }
+
+ 		gene_hair_type={ "hair_straight_thin_beard" 114 "hair_straight_thin_beard" 114 }
+
+ 		gene_baldness={ "male_pattern_baldness" 255 "male_pattern_baldness" 255 }
+
+ 		eye_accessory={ "normal_eyes" 149 "normal_eyes" 149 }
+
+ 		teeth_accessory={ "normal_teeth" 0 "normal_teeth" 0 }
+
+ 		eyelashes_accessory={ "normal_eyelashes" 30 "normal_eyelashes" 30 }
+
+ 		clothes={ "western_bedchamber" 79 "most_clothes" 0 }
+
+ }
+
+	override={
+
+		portrait_modifier_overrides={
+
+			custom_beards=male_empty
+
+			custom_hair=m_hair_tgp_chinese_02
+
+		}
+
+	}
+
+
+
+	entity={ 0 0 }
+
+}
+

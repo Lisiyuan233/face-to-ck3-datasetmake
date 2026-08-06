@@ -1,0 +1,1246 @@
+{
+  "schema_version": 2,
+  "source_schema_path": "D:\\workspace\\face-to-ck3-datasetmake\\face_to_ck3_dataset_male_small\\dna_schema.json",
+  "source_schema_sha256": "67d3985195574aec3bf9a71943c524efde8a2790f53312138f942bf3e1d786b3",
+  "analysis_version": 1,
+  "normalization": {
+    "byte_divisor": 255,
+    "signed_range": [
+      -1.0,
+      1.0
+    ],
+    "strength_range": [
+      0.0,
+      1.0
+    ],
+    "color_range": [
+      0.0,
+      1.0
+    ],
+    "scalar_range": [
+      0.0,
+      1.0
+    ]
+  },
+  "scalar_fields": [
+    {
+      "name": "gene_chin_forward",
+      "alleles": [
+        "chin_forward_neg",
+        "chin_forward_pos"
+      ],
+      "canonical_allele": "chin_forward_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_chin_height",
+      "alleles": [
+        "chin_height_neg",
+        "chin_height_pos"
+      ],
+      "canonical_allele": "chin_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 33,
+      "observed_max": 191,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_chin_width",
+      "alleles": [
+        "chin_width_neg",
+        "chin_width_pos"
+      ],
+      "canonical_allele": "chin_width_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 38,
+      "observed_max": 252,
+      "recommended_visibility_threshold": 255,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_eye_angle",
+      "alleles": [
+        "eye_angle_neg",
+        "eye_angle_pos"
+      ],
+      "canonical_allele": "eye_angle_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 28,
+      "observed_max": 181,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_eye_depth",
+      "alleles": [
+        "eye_depth_neg",
+        "eye_depth_pos"
+      ],
+      "canonical_allele": "eye_depth_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 63,
+      "observed_max": 216,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_eye_height",
+      "alleles": [
+        "eye_height_neg",
+        "eye_height_pos"
+      ],
+      "canonical_allele": "eye_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 63,
+      "observed_max": 191,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_eye_distance",
+      "alleles": [
+        "eye_distance_neg",
+        "eye_distance_pos"
+      ],
+      "canonical_allele": "eye_distance_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 43,
+      "observed_max": 196,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_eye_shut",
+      "alleles": [
+        "eye_shut_neg",
+        "eye_shut_pos"
+      ],
+      "canonical_allele": "eye_shut_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 102,
+      "observed_max": 252,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_forehead_angle",
+      "alleles": [
+        "forehead_angle_neg",
+        "forehead_angle_pos"
+      ],
+      "canonical_allele": "forehead_angle_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 12,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_forehead_roundness",
+      "alleles": [
+        "forehead_roundness_neg",
+        "forehead_roundness_pos"
+      ],
+      "canonical_allele": "forehead_roundness_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 76,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_forehead_width",
+      "alleles": [
+        "forehead_width_neg",
+        "forehead_width_pos"
+      ],
+      "canonical_allele": "forehead_width_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_forehead_height",
+      "alleles": [
+        "forehead_height_neg",
+        "forehead_height_pos"
+      ],
+      "canonical_allele": "forehead_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 249,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_head_height",
+      "alleles": [
+        "head_height_neg",
+        "head_height_pos"
+      ],
+      "canonical_allele": "head_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 178,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_head_width",
+      "alleles": [
+        "head_width_neg",
+        "head_width_pos"
+      ],
+      "canonical_allele": "head_width_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 234,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_head_profile",
+      "alleles": [
+        "head_profile_neg",
+        "head_profile_pos"
+      ],
+      "canonical_allele": "head_profile_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 0,
+      "observed_max": 247,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_head_top_height",
+      "alleles": [
+        "head_top_height_neg",
+        "head_top_height_pos"
+      ],
+      "canonical_allele": "head_top_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 89,
+      "observed_max": 191,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_head_top_width",
+      "alleles": [
+        "head_top_width_neg",
+        "head_top_width_pos"
+      ],
+      "canonical_allele": "head_top_width_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 76,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 255,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_jaw_angle",
+      "alleles": [
+        "jaw_angle_neg",
+        "jaw_angle_pos"
+      ],
+      "canonical_allele": "jaw_angle_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_jaw_forward",
+      "alleles": [
+        "jaw_forward_neg",
+        "jaw_forward_pos"
+      ],
+      "canonical_allele": "jaw_forward_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 63,
+      "observed_max": 191,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_jaw_height",
+      "alleles": [
+        "jaw_height_neg",
+        "jaw_height_pos"
+      ],
+      "canonical_allele": "jaw_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 63,
+      "observed_max": 191,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_jaw_width",
+      "alleles": [
+        "jaw_width_neg",
+        "jaw_width_pos"
+      ],
+      "canonical_allele": "jaw_width_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_mouth_corner_depth",
+      "alleles": [
+        "mouth_corner_depth_neg",
+        "mouth_corner_depth_pos"
+      ],
+      "canonical_allele": "mouth_corner_depth_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 63,
+      "observed_max": 191,
+      "recommended_visibility_threshold": 255,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_mouth_corner_height",
+      "alleles": [
+        "mouth_corner_height_neg",
+        "mouth_corner_height_pos"
+      ],
+      "canonical_allele": "mouth_corner_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 89,
+      "observed_max": 165,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_mouth_forward",
+      "alleles": [
+        "mouth_forward_neg",
+        "mouth_forward_pos"
+      ],
+      "canonical_allele": "mouth_forward_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 63,
+      "observed_max": 242,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_mouth_height",
+      "alleles": [
+        "mouth_height_neg",
+        "mouth_height_pos"
+      ],
+      "canonical_allele": "mouth_height_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 35,
+      "observed_max": 191,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_mouth_width",
+      "alleles": [
+        "mouth_width_neg",
+        "mouth_width_pos"
+      ],
+      "canonical_allele": "mouth_width_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 252,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_mouth_lower_lip_size",
+      "alleles": [
+        "mouth_lower_lip_size_neg",
+        "mouth_lower_lip_size_pos"
+      ],
+      "canonical_allele": "mouth_lower_lip_size_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 249,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_mouth_open",
+      "alleles": [
+        "mouth_open_neg",
+        "mouth_open_pos"
+      ],
+      "canonical_allele": "mouth_open_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 0,
+      "observed_max": 255,
+      "recommended_visibility_threshold": 255,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_neck_length",
+      "alleles": [
+        "neck_length_neg",
+        "neck_length_pos"
+      ],
+      "canonical_allele": "neck_length_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    },
+    {
+      "name": "gene_neck_width",
+      "alleles": [
+        "neck_width_neg",
+        "neck_width_pos"
+      ],
+      "canonical_allele": "neck_width_pos",
+      "normalization": "strength_div_255",
+      "observed_min": 25,
+      "observed_max": 229,
+      "recommended_visibility_threshold": 128,
+      "evidence": "bit_exact_all_strengths_on_stable_bases"
+    }
+  ],
+  "signed_fields": [
+    {
+      "name": "gene_forehead_brow_height",
+      "observed_min": 5,
+      "observed_max": 178,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "forehead_brow_height_neg",
+      "positive_allele": "forehead_brow_height_pos",
+      "negative_count": 228414,
+      "positive_count": 281586,
+      "zero_allele": "forehead_brow_height_pos",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_mouth_upper_lip_size",
+      "observed_min": 25,
+      "observed_max": 229,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_upper_lip_size_neg",
+      "positive_allele": "mouth_upper_lip_size_pos",
+      "negative_count": 220871,
+      "positive_count": 289129,
+      "zero_allele": "mouth_upper_lip_size_pos",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "piecewise_signed_with_visibility_mask"
+    },
+    {
+      "name": "gene_bs_cheek_forward",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "cheek_forward_neg",
+      "positive_allele": "cheek_forward_pos",
+      "negative_count": 179862,
+      "positive_count": 330138,
+      "zero_allele": "cheek_forward_pos",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_cheek_height",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "cheek_height_neg",
+      "positive_allele": "cheek_height_pos",
+      "negative_count": 255155,
+      "positive_count": 254845,
+      "zero_allele": "cheek_height_neg",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_cheek_width",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "cheek_width_neg",
+      "positive_allele": "cheek_width_pos",
+      "negative_count": 187269,
+      "positive_count": 322731,
+      "zero_allele": "cheek_width_pos",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_ear_angle",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "ear_angle_neg",
+      "positive_allele": "ear_angle_pos",
+      "negative_count": 254130,
+      "positive_count": 255870,
+      "zero_allele": "ear_angle_pos",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_ear_outward",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "ear_outward_neg",
+      "positive_allele": "ear_outward_pos",
+      "negative_count": 146635,
+      "positive_count": 363365,
+      "zero_allele": "ear_outward_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    },
+    {
+      "name": "gene_bs_ear_size",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "ear_size_neg",
+      "positive_allele": "ear_size_pos",
+      "negative_count": 256262,
+      "positive_count": 253738,
+      "zero_allele": "ear_size_neg",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_eye_corner_depth",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "eye_corner_depth_neg",
+      "positive_allele": "eye_corner_depth_pos",
+      "negative_count": 257348,
+      "positive_count": 252652,
+      "zero_allele": "eye_corner_depth_neg",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_eye_size",
+      "observed_min": 0,
+      "observed_max": 216,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "eye_size_neg",
+      "positive_allele": "eye_size_pos",
+      "negative_count": 185986,
+      "positive_count": 324014,
+      "zero_allele": "eye_size_pos",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_eye_upper_lid_size",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "eye_upper_lid_size_neg",
+      "positive_allele": "eye_upper_lid_size_pos",
+      "negative_count": 298757,
+      "positive_count": 211243,
+      "zero_allele": "eye_upper_lid_size_neg",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    },
+    {
+      "name": "gene_bs_forehead_brow_curve",
+      "observed_min": 0,
+      "observed_max": 242,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "forehead_brow_curve_neg",
+      "positive_allele": "forehead_brow_curve_pos",
+      "negative_count": 439506,
+      "positive_count": 70494,
+      "zero_allele": "forehead_brow_curve_neg",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_forehead_brow_forward",
+      "observed_min": 0,
+      "observed_max": 244,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "forehead_brow_forward_neg",
+      "positive_allele": "forehead_brow_forward_pos",
+      "negative_count": 193626,
+      "positive_count": 316374,
+      "zero_allele": "forehead_brow_forward_pos",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_forehead_brow_inner_height",
+      "observed_min": 0,
+      "observed_max": 127,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "forehead_brow_inner_height_neg",
+      "positive_allele": "forehead_brow_inner_height_pos",
+      "negative_count": 255218,
+      "positive_count": 254782,
+      "zero_allele": "forehead_brow_inner_height_neg",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_forehead_brow_outer_height",
+      "observed_min": 0,
+      "observed_max": 127,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "forehead_brow_outer_height_neg",
+      "positive_allele": "forehead_brow_outer_height_pos",
+      "negative_count": 254290,
+      "positive_count": 255710,
+      "zero_allele": "forehead_brow_outer_height_pos",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_forehead_brow_width",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "forehead_brow_width_neg",
+      "positive_allele": "forehead_brow_width_pos",
+      "negative_count": 208773,
+      "positive_count": 301227,
+      "zero_allele": "forehead_brow_width_pos",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_jaw_def",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "jaw_def_neg",
+      "positive_allele": "jaw_def_pos",
+      "negative_count": 443075,
+      "positive_count": 66925,
+      "zero_allele": "jaw_def_neg",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    },
+    {
+      "name": "gene_bs_mouth_lower_lip_full",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_lower_lip_full_neg",
+      "positive_allele": "mouth_lower_lip_full_pos",
+      "negative_count": 241457,
+      "positive_count": 268543,
+      "zero_allele": "mouth_lower_lip_full_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "conditioned_local_head"
+    },
+    {
+      "name": "gene_bs_mouth_lower_lip_pad",
+      "observed_min": 0,
+      "observed_max": 242,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_lower_lip_pad_neg",
+      "positive_allele": "mouth_lower_lip_pad_pos",
+      "negative_count": 348672,
+      "positive_count": 161328,
+      "zero_allele": "mouth_lower_lip_pad_neg",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "conditioned_local_head"
+    },
+    {
+      "name": "gene_bs_mouth_lower_lip_width",
+      "observed_min": 0,
+      "observed_max": 127,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_lower_lip_width_neg",
+      "positive_allele": "mouth_lower_lip_width_pos",
+      "negative_count": 238978,
+      "positive_count": 271022,
+      "zero_allele": "mouth_lower_lip_width_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "conditioned_local_head"
+    },
+    {
+      "name": "gene_bs_mouth_philtrum_shape",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_philtrum_shape_neg",
+      "positive_allele": "mouth_philtrum_shape_pos",
+      "negative_count": 243344,
+      "positive_count": 266656,
+      "zero_allele": "mouth_philtrum_shape_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "conditioned_local_head"
+    },
+    {
+      "name": "gene_bs_mouth_philtrum_width",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_philtrum_width_neg",
+      "positive_allele": "mouth_philtrum_width_pos",
+      "negative_count": 274426,
+      "positive_count": 235574,
+      "zero_allele": "mouth_philtrum_width_neg",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "conditioned_local_head"
+    },
+    {
+      "name": "gene_bs_mouth_upper_lip_full",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_upper_lip_full_neg",
+      "positive_allele": "mouth_upper_lip_full_pos",
+      "negative_count": 210805,
+      "positive_count": 299195,
+      "zero_allele": "mouth_upper_lip_full_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "conditioned_local_head"
+    },
+    {
+      "name": "gene_bs_mouth_upper_lip_profile",
+      "observed_min": 0,
+      "observed_max": 242,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_upper_lip_profile_neg",
+      "positive_allele": "mouth_upper_lip_profile_pos",
+      "negative_count": 228503,
+      "positive_count": 281497,
+      "zero_allele": "mouth_upper_lip_profile_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "conditioned_local_head"
+    },
+    {
+      "name": "gene_bs_mouth_upper_lip_width",
+      "observed_min": 0,
+      "observed_max": 127,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "mouth_upper_lip_width_neg",
+      "positive_allele": "mouth_upper_lip_width_pos",
+      "negative_count": 236301,
+      "positive_count": 273699,
+      "zero_allele": "mouth_upper_lip_width_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    },
+    {
+      "name": "gene_bs_nose_forward",
+      "observed_min": 0,
+      "observed_max": 127,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_forward_neg",
+      "positive_allele": "nose_forward_pos",
+      "negative_count": 284132,
+      "positive_count": 225868,
+      "zero_allele": "nose_forward_neg",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_height",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_height_neg",
+      "positive_allele": "nose_height_pos",
+      "negative_count": 319226,
+      "positive_count": 190774,
+      "zero_allele": "nose_height_neg",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_length",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_length_neg",
+      "positive_allele": "nose_length_pos",
+      "negative_count": 370417,
+      "positive_count": 139583,
+      "zero_allele": "nose_length_neg",
+      "recommended_visibility_threshold": 128,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_nostril_height",
+      "observed_min": 0,
+      "observed_max": 127,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_nostril_height_neg",
+      "positive_allele": "nose_nostril_height_pos",
+      "negative_count": 335685,
+      "positive_count": 174315,
+      "zero_allele": "nose_nostril_height_neg",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    },
+    {
+      "name": "gene_bs_nose_nostril_width",
+      "observed_min": 0,
+      "observed_max": 226,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_nostril_width_neg",
+      "positive_allele": "nose_nostril_width_pos",
+      "negative_count": 239917,
+      "positive_count": 270083,
+      "zero_allele": "nose_nostril_width_pos",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_ridge_angle",
+      "observed_min": 0,
+      "observed_max": 127,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_ridge_angle_neg",
+      "positive_allele": "nose_ridge_angle_pos",
+      "negative_count": 232513,
+      "positive_count": 277487,
+      "zero_allele": "nose_ridge_angle_pos",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_ridge_width",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_ridge_width_neg",
+      "positive_allele": "nose_ridge_width_pos",
+      "negative_count": 239821,
+      "positive_count": 270179,
+      "zero_allele": "nose_ridge_width_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    },
+    {
+      "name": "gene_bs_nose_size",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_size_neg",
+      "positive_allele": "nose_size_pos",
+      "negative_count": 141038,
+      "positive_count": 368962,
+      "zero_allele": "nose_size_pos",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_tip_angle",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_tip_angle_neg",
+      "positive_allele": "nose_tip_angle_pos",
+      "negative_count": 290593,
+      "positive_count": 219407,
+      "zero_allele": "nose_tip_angle_neg",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_tip_forward",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_tip_forward_neg",
+      "positive_allele": "nose_tip_forward_pos",
+      "negative_count": 397205,
+      "positive_count": 112795,
+      "zero_allele": "nose_tip_forward_neg",
+      "recommended_visibility_threshold": 255,
+      "prediction_strategy": "independent_prediction"
+    },
+    {
+      "name": "gene_bs_nose_tip_width",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_tip_width_neg",
+      "positive_allele": "nose_tip_width_pos",
+      "negative_count": 297344,
+      "positive_count": 212656,
+      "zero_allele": "nose_tip_width_neg",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    },
+    {
+      "name": "face_detail_nose_ridge_def",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "negative_allele": "nose_ridge_def_neg",
+      "positive_allele": "nose_ridge_def_pos",
+      "negative_count": 195673,
+      "positive_count": 314327,
+      "zero_allele": "nose_ridge_def_pos",
+      "recommended_visibility_threshold": 256,
+      "prediction_strategy": "local_region_head"
+    }
+  ],
+  "categorical_fields": [
+    {
+      "name": "gene_bs_ear_inner_shape",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "ear_inner_shape_pos"
+      ],
+      "class_counts": [
+        510000
+      ],
+      "prediction_strategy": "strength_only",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "gene_bs_ear_bend",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "ear_both_bend_pos",
+        "ear_lower_bend_pos",
+        "ear_upper_bend_pos"
+      ],
+      "class_counts": [
+        169935,
+        169801,
+        170264
+      ],
+      "prediction_strategy": "local_region_head",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "gene_bs_eye_fold_shape",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "eye_fold_shape_02_neg",
+        "eye_fold_shape_neg",
+        "eye_fold_shape_pos"
+      ],
+      "class_counts": [
+        139648,
+        152331,
+        218021
+      ],
+      "prediction_strategy": "local_region_head",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "gene_bs_mouth_lower_lip_def",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "mouth_lower_lip_def_pos"
+      ],
+      "class_counts": [
+        510000
+      ],
+      "prediction_strategy": "strength_only",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "gene_bs_mouth_philtrum_def",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "mouth_philtrum_def_pos"
+      ],
+      "class_counts": [
+        510000
+      ],
+      "prediction_strategy": "strength_only",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "gene_bs_mouth_upper_lip_def",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "mouth_upper_lip_def_pos"
+      ],
+      "class_counts": [
+        510000
+      ],
+      "prediction_strategy": "strength_only",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "gene_bs_nose_profile",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "nose_profile_hawk",
+        "nose_profile_hawk_pos",
+        "nose_profile_neg",
+        "nose_profile_pos"
+      ],
+      "class_counts": [
+        27278,
+        15953,
+        123789,
+        342980
+      ],
+      "prediction_strategy": "independent_prediction",
+      "recommended_visibility_threshold": 255
+    },
+    {
+      "name": "face_detail_cheek_def",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "cheek_def_01",
+        "cheek_def_02"
+      ],
+      "class_counts": [
+        263761,
+        246239
+      ],
+      "prediction_strategy": "local_region_head",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "face_detail_cheek_fat",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "cheek_fat_01_neg",
+        "cheek_fat_01_pos",
+        "cheek_fat_02_pos",
+        "cheek_fat_03_pos",
+        "cheek_fat_04_pos"
+      ],
+      "class_counts": [
+        114340,
+        141489,
+        62657,
+        119020,
+        72494
+      ],
+      "prediction_strategy": "independent_prediction",
+      "recommended_visibility_threshold": 255
+    },
+    {
+      "name": "face_detail_chin_cleft",
+      "observed_min": 0,
+      "observed_max": 204,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "chin_cleft",
+        "chin_dimple"
+      ],
+      "class_counts": [
+        260222,
+        249778
+      ],
+      "prediction_strategy": "conditioned_local_head",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "face_detail_chin_def",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "chin_def",
+        "chin_def_neg"
+      ],
+      "class_counts": [
+        200678,
+        309322
+      ],
+      "prediction_strategy": "conditioned_local_head",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "face_detail_eye_lower_lid_def",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "eye_lower_lid_def",
+        "eye_lower_lid_def_02"
+      ],
+      "class_counts": [
+        238328,
+        271672
+      ],
+      "prediction_strategy": "conditioned_local_head",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "face_detail_eye_socket",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "eye_socket_01",
+        "eye_socket_02",
+        "eye_socket_03",
+        "eye_socket_color_01",
+        "eye_socket_color_02",
+        "eye_socket_color_03"
+      ],
+      "class_counts": [
+        123380,
+        123939,
+        131392,
+        43754,
+        43767,
+        43768
+      ],
+      "prediction_strategy": "group_similar_classes_plus_strength",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "face_detail_nasolabial",
+      "observed_min": 0,
+      "observed_max": 191,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "nasolabial_01",
+        "nasolabial_02",
+        "nasolabial_03",
+        "nasolabial_04"
+      ],
+      "class_counts": [
+        166395,
+        165418,
+        165919,
+        12268
+      ],
+      "prediction_strategy": "independent_prediction",
+      "recommended_visibility_threshold": 255
+    },
+    {
+      "name": "face_detail_nose_tip_def",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "nose_tip_def"
+      ],
+      "class_counts": [
+        510000
+      ],
+      "prediction_strategy": "strength_only",
+      "recommended_visibility_threshold": 256
+    },
+    {
+      "name": "face_detail_temple_def",
+      "observed_min": 0,
+      "observed_max": 255,
+      "missing_count": 0,
+      "pair_mismatch_count": 0,
+      "classes": [
+        "temple_def"
+      ],
+      "class_counts": [
+        510000
+      ],
+      "prediction_strategy": "strength_only",
+      "recommended_visibility_threshold": 256
+    }
+  ],
+  "color_fields": [
+    {
+      "name": "hair_color",
+      "missing_count": 0,
+      "pair_mismatch_count": 0
+    },
+    {
+      "name": "skin_color",
+      "missing_count": 0,
+      "pair_mismatch_count": 0
+    },
+    {
+      "name": "eye_color",
+      "missing_count": 0,
+      "pair_mismatch_count": 0
+    }
+  ],
+  "compatibility": {
+    "status": "proposal_requires_normalizer_and_model_v2_support",
+    "original_schema_is_not_modified": true
+  }
+}

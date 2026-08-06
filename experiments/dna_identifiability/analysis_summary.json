@@ -1,0 +1,36 @@
+{
+  "analysis_version": 1,
+  "experiment_dir": "D:\\workspace\\face-to-ck3-datasetmake\\experiments\\dna_identifiability",
+  "plan_sha256": "6bee8dc232ca8af18b7d2a7d99ca3a44891bb0506b75bf6090e6ec857416cf4f",
+  "render_count": 8908,
+  "base_count": 17,
+  "field_count": 83,
+  "stable_baseline_base_count": 6,
+  "exposure_drift_base_count": 11,
+  "robust_signed_alias_count": 30,
+  "context_dependent_alias_count": 1,
+  "single_class_categorical_count": 6,
+  "categorical_alias_field_count": 1,
+  "tier_counts": {
+    "A": 24,
+    "B": 12,
+    "C": 16,
+    "D": 31
+  },
+  "limitations": [
+    "probe_accuracy_not_computed",
+    "landmark_detector_not_computed",
+    "lighting_drift_normalized_with_per_image_gradient_features",
+    "categorical_aliases_are_candidates_until_rgb_texture_probe"
+  ],
+  "outputs": {
+    "fields": "field_identifiability.csv",
+    "classes": "field_class_identifiability.csv",
+    "aliases": "allele_class_alias_matrix.csv",
+    "quality": "render_quality.csv",
+    "groups": "field_groups.json",
+    "loss_weights": "recommended_loss_weights.json",
+    "visibility_thresholds": "recommended_visibility_thresholds.json",
+    "training_schema": "recommended_training_schema.json"
+  }
+}
