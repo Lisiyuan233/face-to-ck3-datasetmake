@@ -8,8 +8,10 @@ face_to_ck3_dateset - female large/
 face_to_ck3_dateset - male large/
 
 # 忽略 DNA field sweep 工具运行时的输出
-experiments/
-
+experiments/dna_field_sweeps
+# identifiability 实验渲染图体积大，不进版本
+experiments/dna_identifiability/renders/
+experiments/dna_identifiability/dna/
 # Python
 __pycache__/
 *.py[cod]
