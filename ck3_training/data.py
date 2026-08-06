@@ -120,6 +120,28 @@ def _uniform_jitter(
     return image
 
 
+def normalize_exposure(
+    image: Image.Image,
+    *,
+    target_mean: float,
+    target_std: float,
+    min_gain: float,
+    max_gain: float,
+) -> Image.Image:
+    """Normalize luminance drift while retaining relative RGB differences."""
+
+    tensor = TF.to_tensor(image.convert("RGB"))
+    luminance = 0.2989 * tensor[0] + 0.5870 * tensor[1] + 0.1140 * tensor[2]
+    source_mean = luminance.mean()
+    source_std = luminance.std().clamp_min(1e-4)
+    gain = (float(target_std) / source_std).clamp(
+        min=float(min_gain), max=float(max_gain)
+    )
+    offset = float(target_mean) - source_mean * gain
+    normalized = (tensor * gain + offset).clamp_(0.0, 1.0)
+    return TF.to_pil_image(normalized)
+
+
 class DualViewTransform:
     """Build strong and weak appearance views of the same aligned face."""
 
@@ -154,6 +176,15 @@ class DualViewTransform:
             interpolation=InterpolationMode.BILINEAR,
             antialias=True,
         )
+        exposure = self.augmentation.get("exposure_normalization", {})
+        if bool(exposure.get("enabled", False)):
+            image = normalize_exposure(
+                image,
+                target_mean=float(exposure["target_mean"]),
+                target_std=float(exposure["target_std"]),
+                min_gain=float(exposure["min_gain"]),
+                max_gain=float(exposure["max_gain"]),
+            )
         if not self.training:
             return image
 
@@ -391,7 +422,8 @@ class TarShardDataset(IterableDataset):
 
     def _decode(self, raw: dict[str, Any]) -> dict[str, Any]:
         try:
-            label = json.loads(raw["json_bytes"].decode("utf-8"))
+            source_label = json.loads(raw["json_bytes"].decode("utf-8"))
+            label = self.schema.adapt_label(source_label)
             self.schema.validate_label(label)
             with Image.open(io.BytesIO(raw["front_image_bytes"])) as decoded:
                 front_image = decoded.convert("RGB")
@@ -406,6 +438,9 @@ class TarShardDataset(IterableDataset):
                 "sample_id": str(label["sample_id"]),
                 "geometry_view": geometry,
                 "reference_view": reference,
+                "scalar": torch.tensor(
+                    label.get("scalar", []), dtype=torch.float32
+                ),
                 "signed": torch.tensor(label["signed"], dtype=torch.float32),
                 "categorical_class": torch.tensor(
                     label["categorical_class"], dtype=torch.long

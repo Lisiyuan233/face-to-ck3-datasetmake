@@ -118,6 +118,8 @@ class FaceToCK3Model(nn.Module):
         )
         dropout = float(config.get("dropout", 0.1))
         self.feature_dropout = nn.Dropout(dropout)
+        if schema.scalar_dim:
+            self.scalar_head = nn.Linear(feature_dim, schema.scalar_dim)
         self.signed_head = nn.Linear(feature_dim, schema.signed_dim)
         self.strength_head = nn.Linear(feature_dim, schema.categorical_dim)
         self.categorical_heads = nn.ModuleDict(
@@ -145,6 +147,8 @@ class FaceToCK3Model(nn.Module):
 
     def _initialize_heads(self) -> None:
         modules = [self.signed_head, self.strength_head]
+        if hasattr(self, "scalar_head"):
+            modules.append(self.scalar_head)
         modules.extend(self.categorical_heads.values())
         if self.use_side_view:
             modules.extend([self.side_projection, self.side_gate])
@@ -169,6 +173,12 @@ class FaceToCK3Model(nn.Module):
         visual_features: torch.Tensor,
         fused_geometry_features: torch.Tensor | None = None,
     ) -> dict[str, Any]:
+        scalar_features = (
+            fused_geometry_features
+            if fused_geometry_features is not None
+            and "scalar" in self.geometry_targets
+            else visual_features
+        )
         signed_features = (
             fused_geometry_features
             if fused_geometry_features is not None
@@ -187,7 +197,7 @@ class FaceToCK3Model(nn.Module):
             and "categorical" in self.geometry_targets
             else visual_features
         )
-        return {
+        outputs = {
             "signed": torch.tanh(self.signed_head(signed_features)),
             "categorical_strength": torch.sigmoid(
                 self.strength_head(strength_features)
@@ -197,6 +207,9 @@ class FaceToCK3Model(nn.Module):
                 for key, head in self.categorical_heads.items()
             },
         }
+        if hasattr(self, "scalar_head"):
+            outputs["scalar"] = torch.sigmoid(self.scalar_head(scalar_features))
+        return outputs
 
     def _fuse_views(
         self, front_features: torch.Tensor, side_features: torch.Tensor

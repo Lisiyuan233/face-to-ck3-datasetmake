@@ -16,6 +16,7 @@ import hashlib
 import itertools
 import json
 import math
+import os
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -684,7 +685,10 @@ def analyze_experiment(
 
     recommended_schema = {
         "schema_version": 2,
-        "source_schema_path": str(schema_path),
+        "sample_count": schema.get("sample_count"),
+        "source_schema_path": Path(
+            os.path.relpath(schema_path, output_dir)
+        ).as_posix(),
         "source_schema_sha256": _sha256(schema_path),
         "analysis_version": ANALYSIS_VERSION,
         "normalization": {
@@ -707,8 +711,9 @@ def analyze_experiment(
         ],
         "color_fields": schema.get("color_fields", []),
         "compatibility": {
-            "status": "proposal_requires_normalizer_and_model_v2_support",
+            "status": "normalizer_and_training_v2_supported",
             "original_schema_is_not_modified": True,
+            "legacy_v1_shard_labels_are_adapted_online": True,
         },
     }
 

@@ -59,6 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "loss": {
         "smooth_l1_beta": 0.05,
+        "scalar_weight": 1.0,
         "signed_weight": 1.0,
         "class_weight": 1.0,
         "strength_weight": 1.0,
@@ -73,8 +74,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         ],
         "class_weight_min": 0.5,
         "class_weight_max": 2.0,
+        "field_weights_path": None,
+        "texture_metrics_path": None,
+        "texture_weight_blend": 0.0,
+        "use_schema_visibility_thresholds": False,
     },
     "selection": {
+        "scalar_mae_weight": 0.0,
         "signed_mae_weight": 0.40,
         "strength_mae_weight": 0.25,
         "categorical_error_weight": 0.35,
@@ -97,6 +103,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "reference_contrast": 0.08,
         "reference_saturation": 0.05,
         "reference_hue": 0.02,
+        "exposure_normalization": {
+            "enabled": False,
+            "target_mean": 0.45,
+            "target_std": 0.20,
+            "min_gain": 0.5,
+            "max_gain": 2.0,
+        },
     },
 }
 
@@ -183,7 +196,7 @@ def validate_config(config: dict[str, Any]) -> None:
     if not isinstance(geometry_branch.get("enabled"), bool):
         raise ValueError("model.geometry_branch.enabled must be a boolean")
     targets = geometry_branch.get("targets")
-    allowed_targets = {"signed", "strength", "categorical"}
+    allowed_targets = {"scalar", "signed", "strength", "categorical"}
     if (
         not isinstance(targets, list)
         or not targets
@@ -193,7 +206,7 @@ def validate_config(config: dict[str, Any]) -> None:
     ):
         raise ValueError(
             "model.geometry_branch.targets must be a non-empty list without "
-            "duplicates containing only signed, strength, and categorical"
+            "duplicates containing only scalar, signed, strength, and categorical"
         )
     for key in ("grid_height", "grid_width"):
         if int(geometry_branch[key]) < 8:
@@ -218,10 +231,24 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("loss.class_label_smoothing must be in [0, 1)")
     if not 0.0 <= float(loss["class_visibility_threshold"]) <= 1.0:
         raise ValueError("loss.class_visibility_threshold must be in [0, 1]")
-    for key in ("signed_weight", "class_weight", "strength_weight", "consistency_weight"):
+    for key in (
+        "scalar_weight",
+        "signed_weight",
+        "class_weight",
+        "strength_weight",
+        "consistency_weight",
+    ):
         if float(loss[key]) < 0:
             raise ValueError(f"loss.{key} must be >= 0")
+    if not 0.0 <= float(loss["texture_weight_blend"]) <= 1.0:
+        raise ValueError("loss.texture_weight_blend must be in [0, 1]")
+    for key in ("field_weights_path", "texture_metrics_path"):
+        if loss.get(key) is not None and not isinstance(loss[key], str):
+            raise ValueError(f"loss.{key} must be a path string or null")
+    if not isinstance(loss.get("use_schema_visibility_thresholds"), bool):
+        raise ValueError("loss.use_schema_visibility_thresholds must be a boolean")
     selection_keys = (
+        "scalar_mae_weight",
         "signed_mae_weight",
         "strength_mae_weight",
         "categorical_error_weight",
@@ -233,3 +260,17 @@ def validate_config(config: dict[str, Any]) -> None:
     for key in ("geometry_hue", "reference_hue"):
         if not 0.0 <= float(augmentation[key]) <= 0.5:
             raise ValueError(f"augmentation.{key} must be in [0, 0.5]")
+    exposure = augmentation.get("exposure_normalization")
+    if not isinstance(exposure, dict):
+        raise ValueError("augmentation.exposure_normalization must be an object")
+    if not isinstance(exposure.get("enabled"), bool):
+        raise ValueError("augmentation.exposure_normalization.enabled must be boolean")
+    for key in ("target_mean", "target_std"):
+        if not 0.0 < float(exposure[key]) < 1.0:
+            raise ValueError(
+                f"augmentation.exposure_normalization.{key} must be in (0, 1)"
+            )
+    if not 0.0 < float(exposure["min_gain"]) <= float(exposure["max_gain"]):
+        raise ValueError(
+            "augmentation.exposure_normalization gains must satisfy 0 < min <= max"
+        )

@@ -19,6 +19,55 @@ DATASET = ROOT / "face_to_ck3_dataset_male_small"
 
 @unittest.skipUnless(torch is not None, "PyTorch is not installed")
 class GeometryModelTests(unittest.TestCase):
+    def test_identifiability_v2_has_scalar_head_and_weighted_loss(self) -> None:
+        from ck3_training.config import apply_smoke_overrides, load_config
+        from ck3_training.losses import MultitaskLoss
+        from ck3_training.model import FaceToCK3Model
+        from ck3_training.schema import load_schema
+
+        schema = load_schema(
+            ROOT
+            / "experiments"
+            / "dna_identifiability"
+            / "recommended_training_schema.json"
+        )
+        config = apply_smoke_overrides(
+            load_config(
+                ROOT
+                / "configs"
+                / "train_convnext_tiny_multiview_identifiability_v2.json"
+            )
+        )
+        config["model"]["side_view"] = False
+        config["model"]["geometry_branch"]["enabled"] = False
+        model = FaceToCK3Model(schema, config["model"])
+        outputs = model(torch.rand(2, 3, 64, 64))
+        self.assertEqual(outputs["scalar"].shape, (2, 30))
+        self.assertEqual(outputs["signed"].shape, (2, 37))
+
+        stats = json.loads(
+            (
+                DATASET
+                / "processed_multiview"
+                / "train_label_stats.json"
+            ).read_text(encoding="utf-8")
+        )
+        counts = schema.adapt_class_counts(stats["categorical_class_counts"])
+        criterion = MultitaskLoss(schema, config["loss"], counts)
+        targets = {
+            "scalar": torch.full((2, schema.scalar_dim), 0.5),
+            "signed": torch.zeros(2, schema.signed_dim),
+            "categorical_class": torch.zeros(
+                2, schema.categorical_dim, dtype=torch.long
+            ),
+            "categorical_strength": torch.ones(
+                2, schema.categorical_dim
+            ),
+        }
+        loss, components = criterion(outputs, targets)
+        self.assertTrue(torch.isfinite(loss))
+        self.assertGreaterEqual(float(components["scalar"]), 0.0)
+
     def test_forward_and_loss_have_no_color_task(self) -> None:
         from ck3_training.config import DEFAULT_CONFIG, apply_smoke_overrides
         from ck3_training.losses import MultitaskLoss

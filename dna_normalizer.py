@@ -24,6 +24,7 @@ from typing import Any, Iterable, Iterator, Sequence
 
 
 SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSIONS = frozenset((1, 2))
 BYTE_MAX = 255
 
 # These are the facial geometry/detail fields present in the collected male
@@ -315,14 +316,31 @@ def build_schema(
 
 
 def validate_schema(schema: dict[str, Any]) -> None:
-    if schema.get("schema_version") != SCHEMA_VERSION:
+    version = schema.get("schema_version")
+    if version not in SUPPORTED_SCHEMA_VERSIONS:
         raise ValueError(
             f"unsupported schema_version={schema.get('schema_version')!r}; "
-            f"expected {SCHEMA_VERSION}"
+            f"expected one of {sorted(SUPPORTED_SCHEMA_VERSIONS)}"
         )
     divisor = schema.get("normalization", {}).get("byte_divisor")
     if divisor != BYTE_MAX:
         raise ValueError(f"unsupported byte_divisor={divisor!r}")
+    scalar_fields = schema.get("scalar_fields", ())
+    if version == 1 and scalar_fields:
+        raise ValueError("schema v1 cannot contain scalar_fields")
+    if version == 2:
+        if not isinstance(scalar_fields, list):
+            raise ValueError("schema v2 scalar_fields must be a list")
+        for spec in scalar_fields:
+            alleles = spec.get("alleles")
+            if (
+                not isinstance(alleles, list)
+                or not alleles
+                or spec.get("canonical_allele") not in alleles
+            ):
+                raise ValueError(
+                    f"{spec.get('name', '<unknown>')}: invalid scalar allele mapping"
+                )
 
 
 def normalize_record(
@@ -332,10 +350,18 @@ def normalize_record(
     require_matching_pairs: bool = True,
 ) -> dict[str, Any]:
     validate_schema(schema)
+    scalar_values: list[float] = []
     signed_values: list[float] = []
     categorical_classes: list[int] = []
     categorical_strengths: list[float] = []
     colors: list[float] = []
+
+    for spec in schema.get("scalar_fields", ()):
+        field = spec["name"]
+        value = _required_gene(record, field, require_matching_pairs)
+        if value.allele1 not in spec["alleles"]:
+            raise ValueError(f"{field}: allele {value.allele1!r} is absent from schema")
+        scalar_values.append(value.value1 / BYTE_MAX)
 
     for spec in schema["signed_fields"]:
         field = spec["name"]
@@ -370,13 +396,16 @@ def normalize_record(
             raise ValueError(f"{field}: color chromosome pairs differ: {value}")
         colors.extend((value[0] / BYTE_MAX, value[1] / BYTE_MAX))
 
-    return {
+    normalized = {
         "sample_id": sample_id,
         "signed": signed_values,
         "categorical_class": categorical_classes,
         "categorical_strength": categorical_strengths,
         "colors": colors,
     }
+    if schema.get("schema_version") == 2:
+        normalized["scalar"] = scalar_values
+    return normalized
 
 
 def _required_gene(
@@ -409,11 +438,13 @@ def apply_normalized_to_template(
     effect at zero strength.
     """
     validate_schema(schema)
+    scalar = label.get("scalar", [])
     signed = label["signed"]
     classes = label["categorical_class"]
     strengths = label["categorical_strength"]
     colors = label.get("colors")
 
+    _expect_length("scalar", scalar, len(schema.get("scalar_fields", ())))
     _expect_length("signed", signed, len(schema["signed_fields"]))
     _expect_length("categorical_class", classes, len(schema["categorical_fields"]))
     _expect_length(
@@ -423,6 +454,12 @@ def apply_normalized_to_template(
         _expect_length("colors", colors, 2 * len(schema["color_fields"]))
 
     replacements: dict[str, tuple[str, int]] = {}
+    for value, spec in zip(scalar, schema.get("scalar_fields", ())):
+        replacements[spec["name"]] = (
+            spec["canonical_allele"],
+            _unit_to_byte(float(value)),
+        )
+
     for value, spec in zip(signed, schema["signed_fields"]):
         numeric = float(value)
         if not math.isfinite(numeric):

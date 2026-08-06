@@ -138,13 +138,14 @@ def load_resume(
     ema: ExponentialMovingAverage,
     schema_sha256: str,
     device: torch.device,
+    target_family: str = TARGET_FAMILY,
 ) -> dict[str, Any]:
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     saved_target_family = checkpoint.get("schema", {}).get("target_family")
-    if saved_target_family != TARGET_FAMILY:
+    if saved_target_family != target_family:
         raise RuntimeError(
-            "checkpoint predicts legacy color targets and cannot be resumed by the "
-            "geometry-only trainer; start a new run"
+            f"checkpoint target family {saved_target_family!r} does not match "
+            f"current target family {target_family!r}; start a new run"
         )
     saved_side_view = bool(
         checkpoint.get("config", {}).get("model", {}).get("side_view", False)
@@ -239,13 +240,19 @@ def main() -> int:
     label_stats = json.loads(stats_path.read_text(encoding="utf-8"))
     if label_stats.get("split") != "train":
         raise RuntimeError("label statistics must be generated from the train split")
-    if label_stats.get("schema_sha256") != schema.sha256:
-        raise RuntimeError("train label statistics use a different schema")
+    stats_schema_sha256 = str(label_stats.get("schema_sha256", ""))
+    if not schema.accepts_statistics_schema(stats_schema_sha256):
+        raise RuntimeError("train label statistics use an incompatible schema")
     if int(label_stats.get("sample_count", -1)) != counts["train"]:
         raise RuntimeError("train label statistics sample count does not match manifest")
-    observable_class_counts = label_stats.get(
-        "categorical_observable_class_counts"
+    use_schema_visibility = bool(
+        config["loss"].get("use_schema_visibility_thresholds", False)
     )
+    observable_class_counts = None
+    if not use_schema_visibility:
+        observable_class_counts = label_stats.get(
+            "categorical_observable_class_counts"
+        )
     if observable_class_counts is not None:
         stats_threshold = float(label_stats.get("observable_threshold", -1.0))
         configured_threshold = float(
@@ -257,6 +264,9 @@ def main() -> int:
             )
     else:
         observable_class_counts = label_stats["categorical_class_counts"]
+    observable_class_counts = schema.adapt_class_counts(
+        observable_class_counts
+    )
     data_root = Path(data_config["root"])
     train_shards = discover_shards(data_root, "train")
     val_shards = discover_shards(data_root, "val")
@@ -384,6 +394,7 @@ def main() -> int:
             ema=ema,
             schema_sha256=schema.sha256,
             device=device,
+            target_family=schema.target_family,
         )
         start_epoch = int(checkpoint["epoch"]) + 1
         global_step = int(checkpoint.get("global_step", 0))
@@ -407,6 +418,13 @@ def main() -> int:
         save_config(config, output_dir / "resolved_config.json")
         (output_dir / "schema_metadata.json").write_text(
             json.dumps(schema.checkpoint_metadata(), ensure_ascii=False, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+        (output_dir / "loss_profile.json").write_text(
+            json.dumps(
+                criterion.profile_metadata(), ensure_ascii=False, indent=2
+            )
             + "\n",
             encoding="utf-8",
         )
@@ -455,9 +473,7 @@ def main() -> int:
                     device=device,
                     amp_mode=amp_mode,
                     max_steps=train_config.get("max_val_steps"),
-                    observable_threshold=float(
-                        config["loss"]["class_visibility_threshold"]
-                    ),
+                    observable_threshold=criterion.observable_thresholds(),
                 )
             score = selection_score(validation_metrics, config["selection"])
             improved = score < best_score
@@ -505,8 +521,14 @@ def main() -> int:
                     " geometry_gate="
                     f"{validation_metrics['geometry_gate_mean']:.4f}"
                 )
+            scalar_text = ""
+            if "scalar_mae" in validation_metrics:
+                scalar_text = (
+                    f"scalar_mae={validation_metrics['scalar_mae']:.5f} "
+                )
             print(
                 f"epoch={epoch} val_score={score:.6f} "
+                f"{scalar_text}"
                 f"signed_mae={validation_metrics['signed_mae']:.5f} "
                 "observable_macro_f1="
                 f"{validation_metrics['categorical_observable_macro_f1']:.4f}"

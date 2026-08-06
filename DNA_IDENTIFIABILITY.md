@@ -143,6 +143,32 @@ T1～T4 只描述固定局部区域内是否有超过重复渲染噪声的高频
 尚未按关键点对齐，局部几何轮廓也可能贡献 SSIM/边缘距离，因此不能把 T1 直接
 解释为“纯纹理字段”。
 
+### 使用 identifiability schema v2 训练
+
+先运行只读门禁；它会从 train/val 各读取一个现有 tar 标签，验证在线转换和统计
+文件兼容性：
+
+```powershell
+python tools/validate_training_setup.py `
+  --config configs/train_convnext_tiny_multiview_identifiability_v2.json
+```
+
+随后启动新训练：
+
+```powershell
+python train.py `
+  --config configs/train_convnext_tiny_multiview_identifiability_v2.json
+```
+
+无需重建 51 万样本的图片分片。dataset reader 会按字段名把旧标签的 67 维 signed
+在线转换成 30 维 allele 无关 scalar 与 37 维保留 signed；categorical 标签继续复用。
+训练损失读取 `recommended_loss_weights.json` 和局部纹理 CSV，使用字段级权重；
+categorical class 使用 schema 中的逐字段可见性阈值。输入图在 ImageNet normalization
+前额外做共享 RGB 增益/偏移的亮度标准化，以减小 CK3 长序列截图的曝光漂移。
+
+schema v2 会改变输出 head 维度和 checkpoint target family，必须开启新 run，不能从
+geometry v1 checkpoint 继续 resume。
+
 建议先对第一个基础脸运行 10 项门禁：
 
 ```powershell

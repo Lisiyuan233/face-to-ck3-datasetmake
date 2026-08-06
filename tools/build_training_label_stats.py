@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
 def empty_stats(schema: CK3Schema) -> dict[str, Any]:
     return {
         "sample_count": 0,
+        "scalar_sum": [0.0] * schema.scalar_dim,
         "signed_sum": [0.0] * schema.signed_dim,
         "strength_sum": [0.0] * schema.categorical_dim,
         "class_counts": [
@@ -54,7 +55,7 @@ def empty_stats(schema: CK3Schema) -> dict[str, Any]:
 
 def add_stats(target: dict[str, Any], source: dict[str, Any]) -> None:
     target["sample_count"] += source["sample_count"]
-    for key in ("signed_sum", "strength_sum"):
+    for key in ("scalar_sum", "signed_sum", "strength_sum"):
         for index, value in enumerate(source[key]):
             target[key][index] += value
     for field_index, counts in enumerate(source["class_counts"]):
@@ -76,9 +77,12 @@ def scan_shard(
             stream = archive.extractfile(member)
             if stream is None:
                 raise RuntimeError(f"cannot extract {member.name} from {path}")
-            label = json.loads(stream.read().decode("utf-8"))
+            source_label = json.loads(stream.read().decode("utf-8"))
+            label = schema.adapt_label(source_label)
             schema.validate_label(label)
             stats["sample_count"] += 1
+            for index, value in enumerate(label.get("scalar", ())):
+                stats["scalar_sum"][index] += float(value)
             for index, value in enumerate(label["signed"]):
                 stats["signed_sum"][index] += float(value)
             for index, value in enumerate(label["categorical_strength"]):
@@ -126,7 +130,9 @@ def main() -> int:
         "version": 1,
         "split": args.split,
         "schema_sha256": schema.sha256,
+        "source_schema_sha256": schema.source_schema_sha256,
         "sample_count": total["sample_count"],
+        "scalar_mean": [value / count for value in total["scalar_sum"]],
         "signed_mean": [value / count for value in total["signed_sum"]],
         "categorical_strength_mean": [
             value / count for value in total["strength_sum"]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import torch
 
@@ -29,12 +29,26 @@ def _macro_f1(confusion: torch.Tensor) -> float:
 
 class MetricAccumulator:
     def __init__(
-        self, schema: CK3Schema, device: torch.device, observable_threshold: float = 0.10
+        self,
+        schema: CK3Schema,
+        device: torch.device,
+        observable_threshold: float | Sequence[float] = 0.10,
     ) -> None:
         self.schema = schema
         self.device = device
-        self.observable_threshold = float(observable_threshold)
+        if isinstance(observable_threshold, (int, float)):
+            thresholds = [float(observable_threshold)] * schema.categorical_dim
+        else:
+            thresholds = [float(value) for value in observable_threshold]
+            if len(thresholds) != schema.categorical_dim:
+                raise ValueError("observable thresholds do not match categorical fields")
+        self.observable_thresholds = torch.tensor(
+            thresholds, dtype=torch.float32, device=device
+        )
         self.sample_count = torch.zeros((), dtype=torch.float64, device=device)
+        self.scalar_abs = torch.zeros(
+            schema.scalar_dim, dtype=torch.float64, device=device
+        )
         self.signed_abs = torch.zeros(schema.signed_dim, dtype=torch.float64, device=device)
         self.strength_abs = torch.zeros(
             schema.categorical_dim, dtype=torch.float64, device=device
@@ -71,6 +85,10 @@ class MetricAccumulator:
     ) -> None:
         batch_size = targets["signed"].shape[0]
         self.sample_count += batch_size
+        scalar_error = None
+        if self.schema.scalar_dim:
+            scalar_error = (outputs["scalar"] - targets["scalar"]).abs()
+            self.scalar_abs += scalar_error.sum(dim=0, dtype=torch.float64)
         signed_error = (outputs["signed"] - targets["signed"]).abs()
         strength_error = (
             outputs["categorical_strength"] - targets["categorical_strength"]
@@ -92,7 +110,7 @@ class MetricAccumulator:
             self.confusion[index] += counts.reshape(class_count, class_count)
             observable = (
                 targets["categorical_strength"][:, index]
-                >= self.observable_threshold
+                >= self.observable_thresholds[index]
             )
             if observable.any():
                 observable_flattened = (
@@ -110,6 +128,8 @@ class MetricAccumulator:
         valid = (race_group >= 0) & (race_group < len(self.race_abs))
         if valid.any():
             per_sample = signed_error.mean(dim=1) + strength_error.mean(dim=1)
+            if scalar_error is not None:
+                per_sample = per_sample + scalar_error.mean(dim=1)
             self.race_abs.scatter_add_(0, race_group[valid], per_sample[valid].double())
             self.race_count.scatter_add_(
                 0,
@@ -127,6 +147,7 @@ class MetricAccumulator:
 
     def compute(self) -> dict[str, Any]:
         count = self.sample_count.clamp_min(1)
+        scalar_fields = (self.scalar_abs / count).cpu()
         signed_fields = (self.signed_abs / count).cpu()
         strength_fields = (self.strength_abs / count).cpu()
 
@@ -158,14 +179,18 @@ class MetricAccumulator:
                     "observable_accuracy": observable_accuracy,
                     "observable_macro_f1": observable_macro_f1,
                     "observable_count": int(observable_matrix.sum().item()),
+                    "visibility_threshold": float(
+                        self.observable_thresholds[index].item()
+                    ),
                     "confusion_matrix": matrix.cpu().tolist(),
                     "observable_confusion_matrix": observable_matrix.cpu().tolist(),
                 }
             )
             accuracies.append(accuracy)
             macro_f1_values.append(macro_f1)
-            observable_accuracies.append(observable_accuracy)
-            observable_macro_f1_values.append(observable_macro_f1)
+            if observable_matrix.sum() > 0:
+                observable_accuracies.append(observable_accuracy)
+                observable_macro_f1_values.append(observable_macro_f1)
 
         race_groups = []
         for index in range(len(self.race_abs)):
@@ -204,6 +229,16 @@ class MetricAccumulator:
             "categorical_fields": categorical,
             "race_groups": race_groups,
         }
+        if self.schema.scalar_dim:
+            result.update(
+                {
+                    "scalar_mae": float(scalar_fields.mean().item()),
+                    "scalar_mae_raw255": float(
+                        scalar_fields.mean().item() * 255.0
+                    ),
+                    "scalar_mae_by_field": scalar_fields.tolist(),
+                }
+            )
         if self.geometry_gate_count > 0:
             result["geometry_gate_mean"] = float(
                 (
@@ -218,6 +253,7 @@ def selection_score(
 ) -> float:
     """Lower is better; all terms are normalized validation quantities."""
     weights = weights or {
+        "scalar_mae_weight": 0.0,
         "signed_mae_weight": 0.40,
         "strength_mae_weight": 0.25,
         "categorical_error_weight": 0.35,
@@ -230,7 +266,9 @@ def selection_score(
         )
     )
     return (
-        float(weights["signed_mae_weight"]) * float(metrics["signed_mae"])
+        float(weights.get("scalar_mae_weight", 0.0))
+        * float(metrics.get("scalar_mae", 0.0))
+        + float(weights["signed_mae_weight"]) * float(metrics["signed_mae"])
         + float(weights["strength_mae_weight"]) * float(metrics["strength_mae"])
         + float(weights["categorical_error_weight"])
         * (1.0 - categorical_f1)

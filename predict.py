@@ -18,7 +18,7 @@ except ImportError as error:
 
 from ck3_training.data import DualViewTransform
 from ck3_training.model import FaceToCK3Model
-from ck3_training.schema import TARGET_FAMILY, load_schema
+from ck3_training.schema import load_schema
 from dna_normalizer import (
     apply_normalized_to_template,
     load_schema as load_raw_dna_schema,
@@ -63,12 +63,13 @@ def main() -> int:
     device = torch.device("cuda" if use_cuda else "cpu")
 
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    if checkpoint.get("schema", {}).get("target_family") != TARGET_FAMILY:
-        raise SystemExit(
-            "checkpoint uses the legacy color-prediction architecture; use a "
-            "geometry-only checkpoint"
-        )
     schema = load_schema(args.schema)
+    saved_target_family = checkpoint.get("schema", {}).get("target_family")
+    if saved_target_family != schema.target_family:
+        raise SystemExit(
+            f"checkpoint target family {saved_target_family!r} does not match "
+            f"schema target family {schema.target_family!r}"
+        )
     saved_sha = checkpoint.get("schema", {}).get("schema_sha256")
     if saved_sha != schema.sha256:
         raise SystemExit(
@@ -153,6 +154,8 @@ def main() -> int:
         "categorical_confidence": confidence,
         "schema_sha256": schema.sha256,
     }
+    if schema.scalar_dim:
+        prediction["scalar"] = outputs["scalar"][0].float().cpu().tolist()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(prediction, ensure_ascii=False, indent=2) + "\n",

@@ -7,7 +7,7 @@ import os
 import random
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 import numpy as np
 import torch
@@ -34,12 +34,17 @@ def seed_worker(worker_id: int) -> None:
 
 def move_targets(batch: dict[str, Any], device: torch.device) -> dict[str, torch.Tensor]:
     keys = (
+        "scalar",
         "signed",
         "categorical_class",
         "categorical_strength",
         "race_group",
     )
-    return {key: batch[key].to(device, non_blocking=True) for key in keys}
+    return {
+        key: batch[key].to(device, non_blocking=True)
+        for key in keys
+        if key in batch
+    }
 
 
 def amp_settings(device: torch.device, mode: str) -> tuple[bool, torch.dtype, bool]:
@@ -278,7 +283,7 @@ def evaluate(
     device: torch.device,
     amp_mode: str,
     max_steps: int | None,
-    observable_threshold: float = 0.10,
+    observable_threshold: float | Sequence[float] = 0.10,
 ) -> dict[str, Any]:
     model.eval()
     enabled, dtype, _ = amp_settings(device, amp_mode)

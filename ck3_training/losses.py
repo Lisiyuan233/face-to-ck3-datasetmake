@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Any
+import csv
+import json
+from pathlib import Path
+from typing import Any, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -18,6 +21,74 @@ def _balanced_class_weights(
     return weights.clamp(minimum, maximum).to(dtype=torch.float32)
 
 
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _load_field_profiles(
+    schema: CK3Schema, config: dict[str, Any]
+) -> tuple[dict[str, list[float]], dict[str, Any]]:
+    names = {
+        "scalar": list(schema.scalar_fields),
+        "signed": list(schema.signed_fields),
+        "strength": [field.name for field in schema.categorical_fields],
+        "class": [field.name for field in schema.categorical_fields],
+    }
+    values = {family: [1.0] * len(field_names) for family, field_names in names.items()}
+    decisions: dict[str, dict[str, Any]] = {}
+    decision_path = config.get("field_weights_path")
+    if decision_path:
+        decisions = json.loads(Path(decision_path).read_text(encoding="utf-8"))
+        if not isinstance(decisions, dict):
+            raise ValueError("field weight profile must be a JSON object")
+
+    texture: dict[str, float] = {}
+    texture_path = config.get("texture_metrics_path")
+    if texture_path:
+        with Path(texture_path).open(encoding="utf-8-sig", newline="") as stream:
+            for row in csv.DictReader(stream):
+                field_name = str(row["field"])
+                weight = _optional_float(row.get("recommended_texture_weight"))
+                if weight is not None:
+                    texture[field_name] = min(1.0, max(0.0, weight))
+    texture_blend = float(config.get("texture_weight_blend", 0.0))
+
+    for family, field_names in names.items():
+        for index, field_name in enumerate(field_names):
+            decision = decisions.get(field_name, {})
+            if family == "scalar":
+                selected = _optional_float(decision.get("merged_head_weight"))
+            elif family == "class":
+                selected = _optional_float(decision.get("source_head_weight"))
+            elif family == "signed":
+                selected = _optional_float(decision.get("source_head_weight"))
+            else:
+                selected = _optional_float(decision.get("recommended_weight"))
+            if selected is None:
+                selected = _optional_float(decision.get("recommended_weight"))
+            base_weight = 1.0 if selected is None else max(0.0, selected)
+            texture_weight = texture.get(field_name, 1.0)
+            values[family][index] = base_weight * (
+                (1.0 - texture_blend) + texture_blend * texture_weight
+            )
+
+    metadata = {
+        "field_weights_path": str(decision_path) if decision_path else None,
+        "texture_metrics_path": str(texture_path) if texture_path else None,
+        "texture_weight_blend": texture_blend,
+        "weights": {
+            family: dict(zip(names[family], family_values))
+            for family, family_values in values.items()
+        },
+    }
+    return values, metadata
+
+
 class MultitaskLoss(nn.Module):
     def __init__(
         self,
@@ -29,14 +100,23 @@ class MultitaskLoss(nn.Module):
         self.schema = schema
         self.beta = float(config["smooth_l1_beta"])
         self.weights = {
+            "scalar": float(config.get("scalar_weight", 1.0)),
             "signed": float(config["signed_weight"]),
             "class": float(config["class_weight"]),
             "strength": float(config["strength_weight"]),
             "consistency": float(config["consistency_weight"]),
         }
         self.class_label_smoothing = float(config["class_label_smoothing"])
-        self.class_visibility_threshold = float(
-            config["class_visibility_threshold"]
+        fallback_visibility = float(config["class_visibility_threshold"])
+        if bool(config.get("use_schema_visibility_thresholds", False)):
+            visibility_thresholds = schema.categorical_visibility_thresholds(
+                fallback_visibility
+            )
+        else:
+            visibility_thresholds = (fallback_visibility,) * schema.categorical_dim
+        self.register_buffer(
+            "class_visibility_thresholds",
+            torch.tensor(visibility_thresholds, dtype=torch.float32),
         )
         self.reference_only_fields = set(
             config.get("reference_only_categorical_fields", ())
@@ -53,12 +133,26 @@ class MultitaskLoss(nn.Module):
                 "unknown categorical fields in loss config: "
                 + ", ".join(sorted(unknown_fields))
             )
+
+        profile_values, self._profile_metadata = _load_field_profiles(schema, config)
+        for family, values in profile_values.items():
+            self.register_buffer(
+                f"{family}_field_weights",
+                torch.tensor(values, dtype=torch.float32),
+            )
+        self._profile_metadata["categorical_visibility_thresholds"] = dict(
+            zip(
+                (field.name for field in schema.categorical_fields),
+                visibility_thresholds,
+            )
+        )
+
         if len(categorical_class_counts) != schema.categorical_dim:
             raise ValueError("train label statistics do not match categorical fields")
         for index in schema.active_categorical_indices:
             field = schema.categorical_fields[index]
             counts = tuple(int(value) for value in categorical_class_counts[index])
-            if len(counts) != len(field.classes) or sum(counts) <= 0:
+            if len(counts) != len(field.classes):
                 raise ValueError(f"invalid train class counts for {field.name}")
             self.register_buffer(
                 f"class_weights_{index}",
@@ -69,13 +163,30 @@ class MultitaskLoss(nn.Module):
                 ),
             )
 
+    def profile_metadata(self) -> dict[str, Any]:
+        return self._profile_metadata
+
+    def observable_thresholds(self) -> tuple[float, ...]:
+        return tuple(
+            float(value)
+            for value in self.class_visibility_thresholds.detach().cpu().tolist()
+        )
+
     def _field_mean_smooth_l1(
-        self, prediction: torch.Tensor, target: torch.Tensor
+        self,
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+        field_weights: torch.Tensor,
     ) -> torch.Tensor:
+        if prediction.shape[1] == 0:
+            return prediction.sum() * 0.0
         loss = F.smooth_l1_loss(
             prediction, target, beta=self.beta, reduction="none"
+        ).mean(dim=0)
+        weights = field_weights.to(dtype=loss.dtype)
+        return (loss * weights).sum() / weights.sum().clamp_min(
+            torch.finfo(loss.dtype).eps
         )
-        return loss.mean(dim=0).mean()
 
     @staticmethod
     def _observable_weighted_mean(
@@ -87,26 +198,52 @@ class MultitaskLoss(nn.Module):
             torch.finfo(weights.dtype).eps
         )
 
+    @staticmethod
+    def _weighted_task_mean(
+        values: Sequence[tuple[torch.Tensor, torch.Tensor]], zero: torch.Tensor
+    ) -> torch.Tensor:
+        if not values:
+            return zero
+        numerator = zero
+        denominator = zero
+        for value, weight in values:
+            numerator = numerator + value * weight
+            denominator = denominator + weight
+        return numerator / denominator.clamp_min(torch.finfo(zero.dtype).eps)
+
     def forward(
         self, outputs: dict[str, Any], targets: dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        signed = self._field_mean_smooth_l1(outputs["signed"], targets["signed"])
-        strength = self._field_mean_smooth_l1(
-            outputs["categorical_strength"], targets["categorical_strength"]
+        zero = outputs["signed"].sum() * 0.0
+        if self.schema.scalar_dim:
+            scalar = self._field_mean_smooth_l1(
+                outputs["scalar"], targets["scalar"], self.scalar_field_weights
+            )
+        else:
+            scalar = zero
+        signed = self._field_mean_smooth_l1(
+            outputs["signed"], targets["signed"], self.signed_field_weights
         )
-        class_losses = []
+        strength = self._field_mean_smooth_l1(
+            outputs["categorical_strength"],
+            targets["categorical_strength"],
+            self.strength_field_weights,
+        )
+        class_losses: list[tuple[torch.Tensor, torch.Tensor]] = []
         for index in self.schema.active_categorical_indices:
+            field_weight = self.class_field_weights[index]
+            if float(field_weight.detach()) <= 0:
+                continue
             field = self.schema.categorical_fields[index]
             prediction_outputs = outputs
-            if (
-                field.name in self.reference_only_fields
-                and "reference" in outputs
-            ):
+            if field.name in self.reference_only_fields and "reference" in outputs:
                 prediction_outputs = outputs["reference"]
             logits = prediction_outputs["categorical_logits"][str(index)]
             class_target = targets["categorical_class"][:, index]
             visibility = targets["categorical_strength"][:, index]
-            observable = visibility >= self.class_visibility_threshold
+            observable = visibility >= self.class_visibility_thresholds[index]
+            if not bool(observable.any()):
+                continue
             class_weight = getattr(self, f"class_weights_{index}")
             sample_loss = F.cross_entropy(
                 logits,
@@ -116,32 +253,50 @@ class MultitaskLoss(nn.Module):
                 label_smoothing=self.class_label_smoothing,
             )
             class_losses.append(
-                self._observable_weighted_mean(
-                    sample_loss, visibility, observable
+                (
+                    self._observable_weighted_mean(
+                        sample_loss, visibility, observable
+                    ),
+                    field_weight,
                 )
             )
-        class_loss = torch.stack(class_losses).mean()
+        class_loss = self._weighted_task_mean(class_losses, zero)
 
-        consistency = signed.new_zeros(())
-        if (
-            self.weights["consistency"] > 0
-            and "reference" in outputs
-        ):
+        consistency = zero
+        if self.weights["consistency"] > 0 and "reference" in outputs:
             reference = outputs["reference"]
-            continuous_consistency = 0.5 * (
-                F.smooth_l1_loss(
-                    outputs["signed"], reference["signed"], beta=self.beta
+            continuous_terms = []
+            if self.schema.scalar_dim:
+                continuous_terms.append(
+                    self._field_mean_smooth_l1(
+                        outputs["scalar"],
+                        reference["scalar"],
+                        self.scalar_field_weights,
+                    )
                 )
-                + F.smooth_l1_loss(
-                    outputs["categorical_strength"],
-                    reference["categorical_strength"],
-                    beta=self.beta,
+            continuous_terms.extend(
+                (
+                    self._field_mean_smooth_l1(
+                        outputs["signed"],
+                        reference["signed"],
+                        self.signed_field_weights,
+                    ),
+                    self._field_mean_smooth_l1(
+                        outputs["categorical_strength"],
+                        reference["categorical_strength"],
+                        self.strength_field_weights,
+                    ),
                 )
             )
-            class_consistency = []
+            continuous_consistency = torch.stack(continuous_terms).mean()
+            class_consistency: list[tuple[torch.Tensor, torch.Tensor]] = []
             for index in self.schema.active_categorical_indices:
                 field = self.schema.categorical_fields[index]
-                if field.name in self.consistency_excluded_fields:
+                field_weight = self.class_field_weights[index]
+                if (
+                    field.name in self.consistency_excluded_fields
+                    or float(field_weight.detach()) <= 0
+                ):
                     continue
                 key = str(index)
                 primary_log = F.log_softmax(
@@ -157,22 +312,26 @@ class MultitaskLoss(nn.Module):
                     + (reference_probability * (reference_log - primary_log)).sum(dim=1)
                 )
                 visibility = targets["categorical_strength"][:, index]
-                observable = visibility >= self.class_visibility_threshold
+                observable = visibility >= self.class_visibility_thresholds[index]
+                if not bool(observable.any()):
+                    continue
                 class_consistency.append(
-                    self._observable_weighted_mean(
-                        symmetric_kl, visibility, observable
+                    (
+                        self._observable_weighted_mean(
+                            symmetric_kl, visibility, observable
+                        ),
+                        field_weight,
                     )
                 )
-            categorical_consistency = (
-                torch.stack(class_consistency).mean()
-                if class_consistency
-                else continuous_consistency.new_zeros(())
+            categorical_consistency = self._weighted_task_mean(
+                class_consistency, zero
             )
             consistency = 0.5 * (
                 continuous_consistency + categorical_consistency
             )
 
         components = {
+            "scalar": scalar,
             "signed": signed,
             "class": class_loss,
             "strength": strength,

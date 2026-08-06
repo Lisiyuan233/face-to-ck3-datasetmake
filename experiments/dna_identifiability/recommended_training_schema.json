@@ -1,6 +1,7 @@
 {
   "schema_version": 2,
-  "source_schema_path": "D:\\workspace\\face-to-ck3-datasetmake\\face_to_ck3_dataset_male_small\\dna_schema.json",
+  "sample_count": 510000,
+  "source_schema_path": "../../face_to_ck3_dataset_male_small/dna_schema.json",
   "source_schema_sha256": "67d3985195574aec3bf9a71943c524efde8a2790f53312138f942bf3e1d786b3",
   "analysis_version": 1,
   "normalization": {
@@ -1240,7 +1241,8 @@
     }
   ],
   "compatibility": {
-    "status": "proposal_requires_normalizer_and_model_v2_support",
-    "original_schema_is_not_modified": true
+    "status": "normalizer_and_training_v2_supported",
+    "original_schema_is_not_modified": true,
+    "legacy_v1_shard_labels_are_adapted_online": true
   }
 }
