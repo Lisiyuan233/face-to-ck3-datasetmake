@@ -1,3 +1,4 @@
 pyautogui
 pillow
 pyperclip
+numpy

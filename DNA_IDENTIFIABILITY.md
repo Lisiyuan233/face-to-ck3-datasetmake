@@ -97,6 +97,31 @@ python dna_field_sweep_tool.py
 python run_identifiability_experiment.py experiments/dna_identifiability --dry-run
 ```
 
+## 5. 分析与字段决策表
+
+全部截图完成后运行：
+
+```powershell
+python analyze_identifiability_experiment.py experiments/dna_identifiability
+```
+
+分析器会先对每张图独立做亮度标准化，再计算正面、侧面和字段局部区域的梯度特征；
+只有在重复 baseline 逐像素完全一致的 bases 上，正负 allele 的 `0/128/255` 三档
+截图也全部一致时，才会自动建议合并 allele。输出包括：
+
+- `field_identifiability.csv`：83 个字段的决策表；
+- `field_class_identifiability.csv`：每个 sign/class 的强度指标；
+- `allele_class_alias_matrix.csv`：class 变化向量相似度；
+- `render_quality.csv`：baseline 噪声和曝光漂移；
+- `field_groups.json`：训练分组和 A～E tier；
+- `recommended_loss_weights.json`；
+- `recommended_visibility_thresholds.json`；
+- `recommended_training_schema.json`：schema v2 提案，不会覆盖当前训练 schema；
+- `analysis_summary.json`。
+
+`probe_accuracy` 在当前阶段留空；在冻结视觉特征 Probe 完成前，tier 会标记为
+`provisional_no_probe_exposure_normalized`。
+
 建议先对第一个基础脸运行 10 项门禁：
 
 ```powershell
