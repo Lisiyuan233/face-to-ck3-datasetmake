@@ -12,11 +12,12 @@ from tests.test_build_identifiability_variants import dna_value, schema_value
 
 class FakeBackend:
     def __init__(self) -> None:
-        self.applied: list[tuple[str, str | None]] = []
+        self.applied: list[tuple[str, str | tuple[str, ...] | None]] = []
         self.captured: list[Path] = []
 
-    def apply_dna(self, dna_text: str, field: str | None) -> None:
-        self.applied.append((dna_text, field))
+    def apply_dna(self, dna_text: str, field) -> None:
+        scope = tuple(field) if field is not None and not isinstance(field, str) else field
+        self.applied.append((dna_text, scope))
 
     def capture(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -25,7 +26,7 @@ class FakeBackend:
 
 
 class IdentifiabilityRunnerTests(unittest.TestCase):
-    def test_runner_uses_full_round_trip_and_resumes_valid_renders(self) -> None:
+    def test_runner_uses_schema_round_trip_and_resumes_valid_renders(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             schema_path = root / "schema.json"
@@ -56,7 +57,10 @@ class IdentifiabilityRunnerTests(unittest.TestCase):
             self.assertEqual(first.completed, 3)
             self.assertEqual(first.skipped, 0)
             self.assertEqual(first.attempted, 3)
-            self.assertEqual([field for _dna, field in backend.applied], [None, None, None])
+            self.assertEqual(
+                [field for _dna, field in backend.applied],
+                [("gene_a", "gene_b")] * 3,
+            )
 
             resumed_backend = FakeBackend()
             resumed = run_experiment(
@@ -74,7 +78,10 @@ class IdentifiabilityRunnerTests(unittest.TestCase):
             ]
             self.assertEqual(len(manifest_rows), 3)
             self.assertTrue(
-                all(row["round_trip_scope"] == "full_parsed_dna" for row in manifest_rows)
+                all(
+                    row["round_trip_scope"] == "schema_fields_and_colors"
+                    for row in manifest_rows
+                )
             )
 
 

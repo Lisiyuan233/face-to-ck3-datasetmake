@@ -101,6 +101,11 @@ class IdentifiabilityBuilderTests(unittest.TestCase):
             self.assertEqual(protocol["field_variants_per_base"], 12)
             self.assertEqual(protocol["variants_per_base"], 17)
             self.assertEqual(protocol["total_variants"], 34)
+            self.assertEqual(
+                protocol["verification_policy"],
+                "schema_fields_and_colors_round_trip_required",
+            )
+            self.assertEqual(protocol["verification_fields"], ["gene_a", "gene_b"])
 
             rows = [
                 json.loads(line)

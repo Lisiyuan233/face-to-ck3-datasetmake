@@ -330,7 +330,11 @@ class EmergencyStop(RuntimeError):
 
 
 class AutomationBackend(Protocol):
-    def apply_dna(self, dna_text: str, field: str | None) -> None: ...
+    def apply_dna(
+        self,
+        dna_text: str,
+        field: str | Sequence[str] | None,
+    ) -> None: ...
 
     def capture(self, path: Path) -> None: ...
 
@@ -408,11 +412,28 @@ class WindowsAutomationBackend:
                 )
             time.sleep(min(poll_interval, remaining))
 
-    def apply_dna(self, dna_text: str, field: str | None) -> None:
+    def apply_dna(
+        self,
+        dna_text: str,
+        field: str | Sequence[str] | None,
+    ) -> None:
         desired_record = parse_dna(dna_text)
-        if field is not None and field not in desired_record.genes:
+        if isinstance(field, str) and field not in desired_record.genes:
             raise ValueError(f"DNA 中不存在验证字段: {field}")
-        desired = desired_record.genes.get(field) if field is not None else None
+        if field is not None and not isinstance(field, str):
+            verification_fields = tuple(dict.fromkeys(str(name) for name in field))
+            if not verification_fields:
+                raise ValueError("DNA 校验字段列表不能为空")
+            missing = [
+                name for name in verification_fields if name not in desired_record.genes
+            ]
+            if missing:
+                raise ValueError("DNA 中不存在验证字段: " + ",".join(missing))
+        else:
+            verification_fields = None
+        desired = (
+            desired_record.genes.get(field) if isinstance(field, str) else None
+        )
         self.pyperclip.copy(dna_text)
         time.sleep(self.config.clipboard_delay)
         self._click(self.config.paste_button)
@@ -454,7 +475,27 @@ class WindowsAutomationBackend:
                     "游戏内完整 DNA 校验失败"
                     + (": " + "; ".join(details) if details else "")
                 )
-            if field is not None:
+            if verification_fields is not None:
+                changed_genes = [
+                    name
+                    for name in verification_fields
+                    if desired_record.genes[name] != actual_record.genes.get(name)
+                ]
+                changed_colors = [
+                    key
+                    for key in sorted(set(desired_record.colors) | set(actual_record.colors))
+                    if desired_record.colors.get(key) != actual_record.colors.get(key)
+                ]
+                if changed_genes or changed_colors:
+                    details = []
+                    if changed_genes:
+                        details.append("genes=" + ",".join(changed_genes[:5]))
+                    if changed_colors:
+                        details.append("colors=" + ",".join(changed_colors[:5]))
+                    raise RuntimeError(
+                        "游戏内实验字段 DNA 校验失败: " + "; ".join(details)
+                    )
+            if isinstance(field, str):
                 actual = actual_record.genes.get(field)
                 if actual != desired:
                     raise RuntimeError(

@@ -922,7 +922,12 @@ def build_protocol(
         "variants_per_base": expected_per_base,
         "total_variants": len(variant_rows),
         "baseline_schedule": "evenly_interleaved_including_start_and_end",
-        "verification_policy": "full_parsed_dna_round_trip_required",
+        "verification_policy": "schema_fields_and_colors_round_trip_required",
+        "verification_fields": [
+            str(spec["name"])
+            for family in ("signed_fields", "categorical_fields")
+            for spec in schema[family]
+        ],
         "paths": {
             "bases": "bases.jsonl",
             "variants": "variants.jsonl",

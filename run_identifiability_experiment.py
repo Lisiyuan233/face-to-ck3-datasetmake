@@ -23,7 +23,11 @@ from dna_field_sweep_tool import (
 
 
 class IdentifiabilityBackend(Protocol):
-    def apply_dna(self, dna_text: str, field: str | None) -> None: ...
+    def apply_dna(
+        self,
+        dna_text: str,
+        field: str | Sequence[str] | None,
+    ) -> None: ...
 
     def capture(self, path: Path) -> None: ...
 
@@ -165,9 +169,10 @@ def run_experiment(
     backend: IdentifiabilityBackend,
     *,
     retries: int,
+    verification_fields: Sequence[str] | None = None,
     on_progress: Callable[[int, int, PlannedVariant, str], None] | None = None,
 ) -> RunResult:
-    """Run or resume variants, requiring a full parsed-DNA round trip each time."""
+    """Run or resume variants, verifying schema fields and colors each time."""
 
     if retries < 0:
         raise ValueError("retries 不能小于 0")
@@ -179,6 +184,20 @@ def run_experiment(
     skipped = 0
     attempted = 0
     total = len(variants)
+    if verification_fields is None:
+        protocol_fields = protocol.get("verification_fields", [])
+        verification_fields = (
+            tuple(str(field) for field in protocol_fields)
+            if protocol_fields
+            else tuple(
+                dict.fromkeys(
+                    variant.field for variant in variants if variant.field is not None
+                )
+            )
+        )
+    verification_fields = tuple(dict.fromkeys(verification_fields))
+    if not verification_fields:
+        raise ValueError("实验计划中没有可用于回读校验的 schema 字段")
 
     for variant in variants:
         if variant.variant_id in completed_ids:
@@ -196,10 +215,10 @@ def run_experiment(
                 dna_text = variant.dna_path.read_text(encoding="utf-8")
                 if sha256_text(dna_text) != variant.dna_sha256:
                     raise RuntimeError(f"运行前 DNA SHA-256 不一致: {variant.dna_path}")
-                # None deliberately requests full-record verification.  This is
-                # stronger than the single-field exploratory sweep and also
-                # verifies that interleaved baselines truly restored the base.
-                backend.apply_dna(dna_text, None)
+                # CK3 may normalize non-training body, clothes and accessory
+                # genes on import. Verify every schema target plus all parsed
+                # colors, so baselines are strict over the experimental scope.
+                backend.apply_dna(dna_text, verification_fields)
                 backend.capture(variant.render_path)
                 render_sha256 = sha256_file(variant.render_path)
                 last_error = None
@@ -257,7 +276,8 @@ def run_experiment(
                 "dna_sha256": variant.dna_sha256,
                 "render_path": variant.render_path.relative_to(experiment_dir).as_posix(),
                 "render_sha256": render_sha256,
-                "round_trip_scope": "full_parsed_dna",
+                "round_trip_scope": "schema_fields_and_colors",
+                "verification_field_count": len(verification_fields),
             },
         )
         completed += 1
@@ -293,6 +313,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     experiment_dir = args.experiment.resolve()
     protocol, variants = load_plan(experiment_dir)
+    verification_fields = tuple(
+        dict.fromkeys(
+            variant.field for variant in variants if variant.field is not None
+        )
+    )
     if args.base_id:
         requested = set(args.base_id)
         available = {variant.base_id for variant in variants}
@@ -337,6 +362,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         variants,
         backend,
         retries=config.retries,
+        verification_fields=verification_fields,
         on_progress=progress,
     )
     print(

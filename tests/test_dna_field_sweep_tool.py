@@ -382,6 +382,41 @@ class DnaFieldSweepTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "gene_other"):
             backend.apply_dna(BASE_DNA, None)
 
+    def test_scoped_verification_ignores_out_of_scope_genes(self) -> None:
+        class FakeClipboard:
+            def copy(self, _value: str) -> None:
+                pass
+
+        config = AutomationConfig(
+            paste_button=(10, 20),
+            confirm_button=(30, 40),
+            verify_copy_button=(50, 60),
+            screenshot_region=(0, 0, 500, 300),
+            clipboard_delay=0,
+            confirm_delay=0,
+            settle_delay=0,
+            screenshot_delay=0,
+            mouse_move_duration=0,
+            click_hover_delay=0,
+            click_hold_delay=0,
+            verification_timeout=1,
+            inter_variant_delay=0,
+        )
+        backend = object.__new__(WindowsAutomationBackend)
+        backend.config = config
+        backend.pyperclip = FakeClipboard()
+        backend._click = lambda _position, **_kwargs: None
+        backend._park_mouse = lambda: None
+
+        changed_other = BASE_DNA.replace('"other_pos" 99', '"other_pos" 98')
+        backend._wait_for_copied_dna = lambda _sentinel: changed_other
+        backend.apply_dna(BASE_DNA, ("gene_test",))
+
+        changed_target = BASE_DNA.replace('"test_neg" 10', '"test_neg" 9')
+        backend._wait_for_copied_dna = lambda _sentinel: changed_target
+        with self.assertRaisesRegex(RuntimeError, "gene_test"):
+            backend.apply_dna(BASE_DNA, ("gene_test",))
+
 
 if __name__ == "__main__":
     unittest.main()
