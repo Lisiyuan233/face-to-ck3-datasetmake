@@ -122,6 +122,27 @@ python analyze_identifiability_experiment.py experiments/dna_identifiability
 `probe_accuracy` 在当前阶段留空；在冻结视觉特征 Probe 完成前，tier 会标记为
 `provisional_no_probe_exposure_normalized`。
 
+### 局部纹理分析
+
+在同一批渲染上追加局部灰度 SSIM、边缘差异和高频残差分析：
+
+```powershell
+python analyze_local_texture.py experiments/dna_identifiability
+```
+
+脚本按字段映射到眼、鼻、嘴、下巴等固定区域，对每个 crop 单独做亮度/对比度
+标准化，并用同一基础 DNA 的重复 baseline P95 做噪声归一化。输出包括：
+
+- `local_texture_identifiability.csv`：83 个字段的纹理信号分级和训练建议；
+- `local_texture_class_metrics.csv`：每个 sign/class 的纹理指标；
+- `local_texture_noise.csv`：各基础脸、区域和视角的 baseline 噪声；
+- `texture_heatmaps/` 与 `texture_heatmap_index.json`：字段平均差分热力图；
+- `local_texture_summary.json`：运行摘要和限制。
+
+T1～T4 只描述固定局部区域内是否有超过重复渲染噪声的高频视觉信号。固定区域
+尚未按关键点对齐，局部几何轮廓也可能贡献 SSIM/边缘距离，因此不能把 T1 直接
+解释为“纯纹理字段”。
+
 建议先对第一个基础脸运行 10 项门禁：
 
 ```powershell
