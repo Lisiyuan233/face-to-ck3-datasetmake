@@ -36,6 +36,7 @@ wheels/
 runs/
 *.pt
 *.pth
+logs/
 
 # Virtual environments
 .env
