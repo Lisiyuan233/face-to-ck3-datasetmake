@@ -54,6 +54,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "ema_decay": 0.9999,
         "log_every": 50,
         "early_stopping_patience": 5,
+        "early_stopping_min_delta": 0.0,
         "max_train_steps": None,
         "max_val_steps": None,
     },
@@ -84,6 +85,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "signed_mae_weight": 0.40,
         "strength_mae_weight": 0.25,
         "categorical_error_weight": 0.35,
+        "categorical_min_observable_count": 0,
     },
     "augmentation": {
         "horizontal_flip": 0.5,
@@ -178,7 +180,12 @@ def validate_config(config: dict[str, Any]) -> None:
     augmentation = config["augmentation"]
     if int(data["image_height"]) < 32 or int(data["image_width"]) < 32:
         raise ValueError("image dimensions must be at least 32 pixels")
-    for key in ("epochs", "batch_size", "gradient_accumulation"):
+    for key in (
+        "epochs",
+        "batch_size",
+        "gradient_accumulation",
+        "early_stopping_patience",
+    ):
         if int(train[key]) < 1:
             raise ValueError(f"train.{key} must be >= 1")
     for key in ("num_workers", "val_num_workers", "freeze_backbone_epochs"):
@@ -186,6 +193,8 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError(f"train.{key} must be >= 0")
     if str(train["amp"]).lower() not in {"off", "fp16", "bf16"}:
         raise ValueError("train.amp must be off, fp16, or bf16")
+    if float(train["early_stopping_min_delta"]) < 0:
+        raise ValueError("train.early_stopping_min_delta must be >= 0")
     if str(model["backbone"]) not in {"resnet18", "convnext_tiny"}:
         raise ValueError("model.backbone must be resnet18 or convnext_tiny")
     if not isinstance(model.get("side_view"), bool):
@@ -257,6 +266,10 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("selection weights must be >= 0")
     if sum(float(selection[key]) for key in selection_keys) <= 0:
         raise ValueError("at least one selection weight must be > 0")
+    if int(selection["categorical_min_observable_count"]) < 0:
+        raise ValueError(
+            "selection.categorical_min_observable_count must be >= 0"
+        )
     for key in ("geometry_hue", "reference_hue"):
         if not 0.0 <= float(augmentation[key]) <= 0.5:
             raise ValueError(f"augmentation.{key} must be in [0, 0.5]")

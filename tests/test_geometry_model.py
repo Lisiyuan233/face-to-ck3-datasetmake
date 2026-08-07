@@ -318,6 +318,56 @@ class GeometryModelTests(unittest.TestCase):
         )
         self.assertAlmostEqual(score, 0.2)
 
+    def test_selection_score_ignores_underpowered_categorical_metric(self) -> None:
+        from ck3_training.metrics import selection_score
+
+        metrics = {
+            "scalar_mae": 0.1,
+            "signed_mae": 0.2,
+            "strength_mae": 0.3,
+            "categorical_macro_f1": 0.1,
+            "categorical_observable_macro_f1": 0.9,
+            "categorical_fields": [
+                {"observable_count": 65, "observable_macro_f1": 0.9}
+            ],
+        }
+        score = selection_score(
+            metrics,
+            {
+                "scalar_mae_weight": 0.0,
+                "signed_mae_weight": 1.0,
+                "strength_mae_weight": 0.0,
+                "categorical_error_weight": 1.0,
+                "categorical_min_observable_count": 500,
+            },
+        )
+        self.assertAlmostEqual(score, 0.2)
+
+    def test_selection_score_uses_only_eligible_categorical_fields(self) -> None:
+        from ck3_training.metrics import selection_score
+
+        metrics = {
+            "signed_mae": 0.2,
+            "strength_mae": 0.3,
+            "categorical_macro_f1": 0.1,
+            "categorical_observable_macro_f1": 0.5,
+            "categorical_fields": [
+                {"observable_count": 65, "observable_macro_f1": 0.1},
+                {"observable_count": 500, "observable_macro_f1": 0.8},
+            ],
+        }
+        score = selection_score(
+            metrics,
+            {
+                "scalar_mae_weight": 0.0,
+                "signed_mae_weight": 0.0,
+                "strength_mae_weight": 0.0,
+                "categorical_error_weight": 1.0,
+                "categorical_min_observable_count": 500,
+            },
+        )
+        self.assertAlmostEqual(score, 0.2)
+
 
 if __name__ == "__main__":
     unittest.main()

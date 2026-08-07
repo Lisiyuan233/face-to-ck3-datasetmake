@@ -46,7 +46,11 @@ from ck3_training.engine import (
     train_one_epoch,
 )
 from ck3_training.losses import MultitaskLoss
-from ck3_training.metrics import selection_score
+from ck3_training.metrics import (
+    categorical_selection_score,
+    continuous_selection_score,
+    selection_score,
+)
 from ck3_training.model import FaceToCK3Model
 from ck3_training.sampling import evenly_spaced_fraction
 from ck3_training.schema import TARGET_FAMILY, load_schema
@@ -60,6 +64,14 @@ def parse_args() -> argparse.Namespace:
         "--config", default="configs/train_convnext_tiny.json", type=Path
     )
     parser.add_argument("--resume", type=Path)
+    parser.add_argument(
+        "--reset-selection-state",
+        action="store_true",
+        help=(
+            "recompute checkpoint-selection baselines from the resumed epoch "
+            "and clear early-stopping patience"
+        ),
+    )
     parser.add_argument(
         "--smoke-test",
         action="store_true",
@@ -204,8 +216,22 @@ def load_resume(
     return checkpoint
 
 
+def _selection_signature(config: dict[str, Any]) -> dict[str, float | int]:
+    return {
+        "scalar_mae_weight": float(config.get("scalar_mae_weight", 0.0)),
+        "signed_mae_weight": float(config["signed_mae_weight"]),
+        "strength_mae_weight": float(config["strength_mae_weight"]),
+        "categorical_error_weight": float(config["categorical_error_weight"]),
+        "categorical_min_observable_count": int(
+            config.get("categorical_min_observable_count", 0)
+        ),
+    }
+
+
 def main() -> int:
     args = parse_args()
+    if args.reset_selection_state and args.resume is None:
+        raise ValueError("--reset-selection-state requires --resume")
     rank, world_size, local_rank, device = distributed_context(args.device)
     config = load_config(args.config)
     if args.data_fraction is not None:
@@ -383,6 +409,8 @@ def main() -> int:
     start_epoch = 0
     global_step = 0
     best_score = float("inf")
+    best_continuous_score = float("inf")
+    best_categorical_score = float("inf")
     epochs_without_improvement = 0
     if args.resume:
         checkpoint = load_resume(
@@ -398,10 +426,43 @@ def main() -> int:
         )
         start_epoch = int(checkpoint["epoch"]) + 1
         global_step = int(checkpoint.get("global_step", 0))
-        best_score = float(checkpoint.get("best_score", float("inf")))
-        epochs_without_improvement = int(
-            checkpoint.get("epochs_without_improvement", 0)
+        saved_selection = _selection_signature(
+            checkpoint.get("config", {}).get("selection", {})
         )
+        current_selection = _selection_signature(config["selection"])
+        selection_changed = saved_selection != current_selection
+        if selection_changed and not args.reset_selection_state:
+            raise RuntimeError(
+                "selection config changed since the checkpoint; resume with "
+                "--reset-selection-state"
+            )
+        if args.reset_selection_state:
+            validation = checkpoint.get("validation")
+            if not isinstance(validation, dict):
+                raise RuntimeError(
+                    "cannot reset selection state: checkpoint has no validation metrics"
+                )
+            best_score = selection_score(validation, config["selection"])
+            best_continuous_score = continuous_selection_score(
+                validation, config["selection"]
+            )
+            categorical_score = categorical_selection_score(
+                validation, config["selection"]
+            )
+            if categorical_score is not None:
+                best_categorical_score = categorical_score
+            epochs_without_improvement = 0
+        else:
+            best_score = float(checkpoint.get("best_score", float("inf")))
+            best_continuous_score = float(
+                checkpoint.get("best_continuous_score", float("inf"))
+            )
+            best_categorical_score = float(
+                checkpoint.get("best_categorical_score", float("inf"))
+            )
+            epochs_without_improvement = int(
+                checkpoint.get("epochs_without_improvement", 0)
+            )
 
     if world_size > 1:
         model = DistributedDataParallel(
@@ -476,12 +537,31 @@ def main() -> int:
                     observable_threshold=criterion.observable_thresholds(),
                 )
             score = selection_score(validation_metrics, config["selection"])
-            improved = score < best_score
+            continuous_score = continuous_selection_score(
+                validation_metrics, config["selection"]
+            )
+            categorical_score = categorical_selection_score(
+                validation_metrics, config["selection"]
+            )
+            min_delta = float(train_config["early_stopping_min_delta"])
+            improved = score < best_score - min_delta
+            continuous_improved = (
+                continuous_score < best_continuous_score - min_delta
+            )
+            categorical_improved = (
+                categorical_score is not None
+                and categorical_score < best_categorical_score - min_delta
+            )
             if improved:
                 best_score = score
                 epochs_without_improvement = 0
             else:
                 epochs_without_improvement += 1
+            if continuous_improved:
+                best_continuous_score = continuous_score
+            if categorical_improved:
+                assert categorical_score is not None
+                best_categorical_score = categorical_score
 
             record = {
                 "type": "epoch",
@@ -490,8 +570,18 @@ def main() -> int:
                 "train": train_metrics,
                 "validation": validation_metrics,
                 "selection_score": score,
+                "continuous_selection_score": continuous_score,
+                "categorical_selection_score": categorical_score,
                 "best_score": best_score,
+                "best_continuous_score": best_continuous_score,
+                "best_categorical_score": (
+                    best_categorical_score
+                    if best_categorical_score < float("inf")
+                    else None
+                ),
                 "improved": improved,
+                "continuous_improved": continuous_improved,
+                "categorical_improved": categorical_improved,
             }
             append_jsonl(log_path, record)
             (output_dir / f"validation-epoch-{epoch:03d}.json").write_text(
@@ -502,6 +592,8 @@ def main() -> int:
                 "epoch": epoch,
                 "global_step": global_step,
                 "best_score": best_score,
+                "best_continuous_score": best_continuous_score,
+                "best_categorical_score": best_categorical_score,
                 "epochs_without_improvement": epochs_without_improvement,
                 "model": raw_model(model).state_dict(),
                 "optimizer": optimizer.state_dict(),
@@ -515,6 +607,10 @@ def main() -> int:
             atomic_checkpoint(output_dir / "last.pt", state)
             if improved:
                 atomic_checkpoint(output_dir / "best.pt", state)
+            if continuous_improved:
+                atomic_checkpoint(output_dir / "best_continuous.pt", state)
+            if categorical_improved:
+                atomic_checkpoint(output_dir / "best_categorical.pt", state)
             geometry_gate_text = ""
             if "geometry_gate_mean" in validation_metrics:
                 geometry_gate_text = (

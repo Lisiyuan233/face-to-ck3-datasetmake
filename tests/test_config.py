@@ -28,9 +28,21 @@ class ConfigTests(unittest.TestCase):
             ["signed", "strength", "categorical"],
         )
         self.assertEqual(
-            sum(DEFAULT_CONFIG["selection"].values()),
+            sum(
+                DEFAULT_CONFIG["selection"][key]
+                for key in (
+                    "scalar_mae_weight",
+                    "signed_mae_weight",
+                    "strength_mae_weight",
+                    "categorical_error_weight",
+                )
+            ),
             1.0,
         )
+        self.assertEqual(
+            DEFAULT_CONFIG["selection"]["categorical_min_observable_count"], 0
+        )
+        self.assertEqual(DEFAULT_CONFIG["train"]["early_stopping_min_delta"], 0.0)
 
     def test_smoke_overrides_are_cpu_friendly(self) -> None:
         config = apply_smoke_overrides(DEFAULT_CONFIG)

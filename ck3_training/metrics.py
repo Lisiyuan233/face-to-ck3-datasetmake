@@ -248,28 +248,88 @@ class MetricAccumulator:
         return result
 
 
+DEFAULT_SELECTION_WEIGHTS = {
+    "scalar_mae_weight": 0.0,
+    "signed_mae_weight": 0.40,
+    "strength_mae_weight": 0.25,
+    "categorical_error_weight": 0.35,
+}
+
+
+def categorical_selection_score(
+    metrics: dict[str, Any], weights: dict[str, Any] | None = None
+) -> float | None:
+    """Return categorical error when enough observable examples exist.
+
+    The per-field minimum avoids allowing a handful of extreme-strength examples
+    to dominate checkpoint selection. A return value of ``None`` means the
+    categorical term is report-only for this validation pass.
+    """
+    weights = weights or DEFAULT_SELECTION_WEIGHTS
+    minimum = int(weights.get("categorical_min_observable_count", 0))
+    if minimum > 0:
+        eligible = [
+            float(field["observable_macro_f1"])
+            for field in metrics.get("categorical_fields", ())
+            if int(field.get("observable_count", 0)) >= minimum
+        ]
+        if not eligible:
+            return None
+        categorical_f1 = sum(eligible) / len(eligible)
+    else:
+        categorical_f1 = float(
+            metrics.get(
+                "categorical_observable_macro_f1",
+                metrics["categorical_macro_f1"],
+            )
+        )
+    return 1.0 - categorical_f1
+
+
+def continuous_selection_score(
+    metrics: dict[str, Any], weights: dict[str, Any] | None = None
+) -> float:
+    """Return a normalized score for scalar, signed, and strength targets."""
+    weights = weights or DEFAULT_SELECTION_WEIGHTS
+    terms = (
+        (
+            float(weights.get("scalar_mae_weight", 0.0)),
+            float(metrics.get("scalar_mae", 0.0)),
+        ),
+        (float(weights["signed_mae_weight"]), float(metrics["signed_mae"])),
+        (
+            float(weights["strength_mae_weight"]),
+            float(metrics["strength_mae"]),
+        ),
+    )
+    total_weight = sum(weight for weight, _value in terms)
+    if total_weight <= 0:
+        raise ValueError("continuous selection weights must sum to more than zero")
+    return sum(weight * value for weight, value in terms) / total_weight
+
+
 def selection_score(
     metrics: dict[str, Any], weights: dict[str, Any] | None = None
 ) -> float:
-    """Lower is better; all terms are normalized validation quantities."""
-    weights = weights or {
-        "scalar_mae_weight": 0.0,
-        "signed_mae_weight": 0.40,
-        "strength_mae_weight": 0.25,
-        "categorical_error_weight": 0.35,
-    }
-    total_weight = sum(float(value) for value in weights.values())
-    categorical_f1 = float(
-        metrics.get(
-            "categorical_observable_macro_f1",
-            metrics["categorical_macro_f1"],
+    """Lower is better; unavailable categorical evidence is excluded."""
+    weights = weights or DEFAULT_SELECTION_WEIGHTS
+    terms = [
+        (
+            float(weights.get("scalar_mae_weight", 0.0)),
+            float(metrics.get("scalar_mae", 0.0)),
+        ),
+        (float(weights["signed_mae_weight"]), float(metrics["signed_mae"])),
+        (
+            float(weights["strength_mae_weight"]),
+            float(metrics["strength_mae"]),
+        ),
+    ]
+    categorical_error = categorical_selection_score(metrics, weights)
+    if categorical_error is not None:
+        terms.append(
+            (float(weights["categorical_error_weight"]), categorical_error)
         )
-    )
-    return (
-        float(weights.get("scalar_mae_weight", 0.0))
-        * float(metrics.get("scalar_mae", 0.0))
-        + float(weights["signed_mae_weight"]) * float(metrics["signed_mae"])
-        + float(weights["strength_mae_weight"]) * float(metrics["strength_mae"])
-        + float(weights["categorical_error_weight"])
-        * (1.0 - categorical_f1)
-    ) / total_weight
+    total_weight = sum(weight for weight, _value in terms)
+    if total_weight <= 0:
+        raise ValueError("available selection weights must sum to more than zero")
+    return sum(weight * value for weight, value in terms) / total_weight
