@@ -1,0 +1,24 @@
+{
+  "analysis": "imagenet_convnext_tiny_front_side_frozen_features",
+  "device": "cuda",
+  "image_count": 682,
+  "group_count": 100,
+  "nearest_relation_counts": {
+    "same": 71,
+    "next": 9,
+    "previous": 20
+  },
+  "same_dna_top1_rate": 0.71,
+  "closer_member_counts": {
+    "first": 84,
+    "second": 16
+  },
+  "member_vs_best_neighbor": {
+    "both": 16,
+    "only_first": 48,
+    "only_second": 7,
+    "neither": 29
+  },
+  "median_same_margin": 0.04928482305437584,
+  "strong_same_margin_ge_5pct": 50
+}

@@ -1,0 +1,27 @@
+{
+  "analysis_version": 1,
+  "created_at": "2026-08-08T09:47:31.060404+00:00",
+  "group_count": 100,
+  "render_count": 100,
+  "same_dna_top1_rate": 0.31,
+  "median_relative_margin": -0.007680502742545485,
+  "classification_counts": {
+    "aligned_weak": 31,
+    "ambiguous": 66,
+    "suspected_next_image_shift": 2,
+    "suspected_previous_dna_lag": 1
+  },
+  "interpretation": {
+    "aligned": "重渲染明显更接近同 DNA 历史截图",
+    "aligned_weak": "同 DNA 排名第一，但与邻组间隔较小",
+    "suspected_previous_dna_lag": "重渲染更接近前一 DNA 组，疑似复制滞后",
+    "suspected_next_image_shift": "重渲染更接近后一 DNA 组，疑似截图/编号前移",
+    "ambiguous": "动画或族群内相似度过高，自动指标不能定论"
+  },
+  "outputs": {
+    "renders": "renders/",
+    "render_comparison": "render_comparison.csv",
+    "group_comparison": "group_comparison.csv",
+    "review": "review/"
+  }
+}
