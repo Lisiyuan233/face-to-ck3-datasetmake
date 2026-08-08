@@ -12,6 +12,9 @@ experiments/dna_field_sweeps
 # identifiability 实验渲染图体积大，不进版本
 experiments/dna_identifiability/renders/
 experiments/dna_identifiability/dna/
+# duplicate DNA 验证实验渲染图/拼图体积大，不进版本
+experiments/duplicate_dna_validation/renders/
+experiments/duplicate_dna_validation/review/
 # Python
 __pycache__/
 *.py[cod]
