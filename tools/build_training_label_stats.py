@@ -15,6 +15,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ck3_training.schema import CK3Schema, load_schema
+from ck3_training.split_index import (
+    file_sha256,
+    load_split_ids,
+    load_split_manifest,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +37,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("face_to_ck3_dataset_male_small/dna_schema.json"),
     )
     parser.add_argument("--split", choices=("train", "val", "test"), default="train")
+    parser.add_argument(
+        "--split-index",
+        type=Path,
+        help="optional grouped split manifest; scans all physical shard directories",
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--observable-threshold", type=float, default=0.10)
@@ -67,12 +77,17 @@ def add_stats(target: dict[str, Any], source: dict[str, Any]) -> None:
 
 
 def scan_shard(
-    path: Path, schema: CK3Schema, observable_threshold: float
+    path: Path,
+    schema: CK3Schema,
+    observable_threshold: float,
+    sample_ids: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     stats = empty_stats(schema)
     with tarfile.open(path, "r:") as archive:
         for member in archive:
             if not member.isfile() or not member.name.lower().endswith(".json"):
+                continue
+            if sample_ids is not None and Path(member.name).stem not in sample_ids:
                 continue
             stream = archive.extractfile(member)
             if stream is None:
@@ -104,7 +119,25 @@ def main() -> int:
     if not 0.0 <= args.observable_threshold <= 1.0:
         raise SystemExit("--observable-threshold must be in [0, 1]")
     schema = load_schema(args.schema)
-    shards = sorted((args.data_root / args.split).glob(f"{args.split}-*.tar"))
+    split_index_sha256 = None
+    sample_ids = None
+    if args.split_index:
+        split_manifest = load_split_manifest(args.split_index)
+        if str(split_manifest.get("schema_sha256", "")) != schema.sha256:
+            raise SystemExit("split index uses a different schema")
+        sample_ids = load_split_ids(args.split_index, args.split)
+        split_index_sha256 = file_sha256(args.split_index)
+        shards = []
+        for physical_split in ("train", "val", "test"):
+            shards.extend(
+                sorted(
+                    (args.data_root / physical_split).glob(
+                        f"{physical_split}-*.tar"
+                    )
+                )
+            )
+    else:
+        shards = sorted((args.data_root / args.split).glob(f"{args.split}-*.tar"))
     if not shards:
         raise SystemExit(f"no {args.split} shards under {args.data_root}")
     total = empty_stats(schema)
@@ -112,7 +145,7 @@ def main() -> int:
         for index, stats in enumerate(
             executor.map(
                 lambda path: scan_shard(
-                    path, schema, args.observable_threshold
+                    path, schema, args.observable_threshold, sample_ids
                 ),
                 shards,
             ),
@@ -126,6 +159,11 @@ def main() -> int:
                     flush=True,
                 )
     count = max(1, total["sample_count"])
+    if sample_ids is not None and total["sample_count"] != len(sample_ids):
+        raise RuntimeError(
+            f"scanned {total['sample_count']} labels, split index contains "
+            f"{len(sample_ids)}"
+        )
     output = {
         "version": 1,
         "split": args.split,
@@ -143,7 +181,12 @@ def main() -> int:
             "observable_class_counts"
         ],
     }
-    destination = args.output or args.data_root / f"{args.split}_label_stats.json"
+    if split_index_sha256 is not None:
+        output["split_index_sha256"] = split_index_sha256
+    destination = args.output
+    if destination is None and args.split_index:
+        destination = args.split_index.parent / f"{args.split}_label_stats.json"
+    destination = destination or args.data_root / f"{args.split}_label_stats.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".partial")
     temporary.write_text(

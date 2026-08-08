@@ -83,6 +83,16 @@ class ConfigTests(unittest.TestCase):
             ["signed", "strength", "categorical"],
         )
 
+    def test_grouped_split_config_is_valid(self) -> None:
+        config = load_config(
+            ROOT
+            / "configs"
+            / "train_convnext_tiny_multiview_identifiability_v4_grouped.json"
+        )
+        validate_config(config)
+        self.assertTrue(config["data"]["split_index"].endswith("manifest.json"))
+        self.assertEqual(config["selection"]["categorical_min_observable_count"], 500)
+
     def test_signed_only_geometry_config_is_valid(self) -> None:
         config = load_config(
             ROOT

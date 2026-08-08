@@ -320,6 +320,7 @@ class TarShardDataset(IterableDataset):
         shuffle_buffer: int,
         seed: int,
         sample_fraction: float = 1.0,
+        sample_ids: frozenset[str] | None = None,
         require_side_view: bool = False,
         rank: int = 0,
         world_size: int = 1,
@@ -337,6 +338,7 @@ class TarShardDataset(IterableDataset):
         self.sample_fraction = float(sample_fraction)
         if not 0.0 < self.sample_fraction <= 1.0:
             raise ValueError("sample_fraction must be in (0, 1]")
+        self.sample_ids = sample_ids
         self.require_side_view = bool(require_side_view)
         self.rank = int(rank)
         self.world_size = int(world_size)
@@ -393,6 +395,8 @@ class TarShardDataset(IterableDataset):
                     key = name.stem
                     part = "json"
                 else:
+                    continue
+                if self.sample_ids is not None and key not in self.sample_ids:
                     continue
                 if not stable_fraction_includes(
                     key, self.sample_fraction, self.seed
@@ -513,6 +517,13 @@ def discover_shards(data_root: str | Path, split: str) -> list[Path]:
         raise RuntimeError(f"partial shards exist in {split_dir}: {partials[:3]}")
     if not shards:
         raise FileNotFoundError(f"no {split} shards found in {split_dir}")
+    return shards
+
+
+def discover_all_shards(data_root: str | Path) -> list[Path]:
+    shards = []
+    for split in ("train", "val", "test"):
+        shards.extend(discover_shards(data_root, split))
     return shards
 
 

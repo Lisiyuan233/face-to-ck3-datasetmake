@@ -299,6 +299,25 @@ class GeometryModelTests(unittest.TestCase):
                 device=torch.device("cpu"),
             )
 
+        model.geometry_targets = frozenset(
+            ("signed", "strength", "categorical")
+        )
+        with (
+            patch("train.torch.load", return_value=checkpoint),
+            self.assertRaisesRegex(RuntimeError, "split index"),
+        ):
+            load_resume(
+                Path("legacy.pt"),
+                model=model,
+                optimizer=MagicMock(),
+                scheduler=MagicMock(),
+                scaler=MagicMock(),
+                ema=MagicMock(),
+                schema_sha256="test-schema",
+                device=torch.device("cpu"),
+                split_index_sha256="grouped-split",
+            )
+
     def test_selection_score_uses_observable_macro_f1(self) -> None:
         from ck3_training.metrics import selection_score
 

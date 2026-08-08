@@ -13,6 +13,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "schema": "face_to_ck3_dataset_male_small/dna_schema.json",
         "manifest": "face_to_ck3_dataset_male_small/processed_front/manifest.json",
         "train_label_stats": "face_to_ck3_dataset_male_small/processed_front/train_label_stats.json",
+        "split_index": None,
         "image_height": 384,
         "image_width": 256,
         "shuffle_buffer": 2000,
@@ -236,6 +237,10 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("data.shuffle_buffer must be >= 1")
     if not 0.0 < float(data["fraction"]) <= 1.0:
         raise ValueError("data.fraction must be in (0, 1]")
+    if data.get("split_index") is not None and not isinstance(
+        data["split_index"], str
+    ):
+        raise ValueError("data.split_index must be a path string or null")
     if not 0.0 <= float(loss["class_label_smoothing"]) < 1.0:
         raise ValueError("loss.class_label_smoothing must be in [0, 1)")
     if not 0.0 <= float(loss["class_visibility_threshold"]) <= 1.0:

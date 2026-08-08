@@ -32,6 +32,7 @@ from ck3_training.config import (
 from ck3_training.data import (
     DualViewTransform,
     TarShardDataset,
+    discover_all_shards,
     discover_shards,
 )
 from ck3_training.engine import (
@@ -54,6 +55,11 @@ from ck3_training.metrics import (
 from ck3_training.model import FaceToCK3Model
 from ck3_training.sampling import evenly_spaced_fraction
 from ck3_training.schema import TARGET_FAMILY, load_schema
+from ck3_training.split_index import (
+    file_sha256,
+    load_split_ids,
+    load_split_manifest,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -151,8 +157,15 @@ def load_resume(
     schema_sha256: str,
     device: torch.device,
     target_family: str = TARGET_FAMILY,
+    split_index_sha256: str | None = None,
 ) -> dict[str, Any]:
     checkpoint = torch.load(path, map_location=device, weights_only=False)
+    saved_split_index_sha256 = checkpoint.get("split_index_sha256")
+    if saved_split_index_sha256 != split_index_sha256:
+        raise RuntimeError(
+            "checkpoint split index does not match the current data split; "
+            "start a new run"
+        )
     saved_target_family = checkpoint.get("schema", {}).get("target_family")
     if saved_target_family != target_family:
         raise RuntimeError(
@@ -248,10 +261,32 @@ def main() -> int:
     schema = load_schema(data_config["schema"])
     manifest_path = Path(data_config["manifest"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    counts = {
-        key: int(value)
-        for key, value in manifest["split"]["counts"].items()
-    }
+    split_index_path = data_config.get("split_index")
+    split_ids: dict[str, frozenset[str]] = {}
+    if split_index_path:
+        split_index_path = Path(split_index_path)
+        split_manifest = load_split_manifest(split_index_path)
+        if str(split_manifest.get("schema_sha256", "")) != schema.sha256:
+            raise RuntimeError("split index uses a different training schema")
+        counts = {
+            key: int(value) for key, value in split_manifest["counts"].items()
+        }
+        split_ids = {
+            split: load_split_ids(split_index_path, split)
+            for split in ("train", "val")
+        }
+        overlap = split_ids["train"] & split_ids["val"]
+        if overlap:
+            raise RuntimeError(
+                f"split index has {len(overlap)} sample ids in both train and val"
+            )
+        grouped_split_sha256 = file_sha256(split_index_path)
+    else:
+        counts = {
+            key: int(value)
+            for key, value in manifest["split"]["counts"].items()
+        }
+        grouped_split_sha256 = None
     use_side_view = bool(config["model"].get("side_view", False))
     if use_side_view and "side" not in manifest.get("crops", {}):
         raise RuntimeError(
@@ -271,6 +306,10 @@ def main() -> int:
         raise RuntimeError("train label statistics use an incompatible schema")
     if int(label_stats.get("sample_count", -1)) != counts["train"]:
         raise RuntimeError("train label statistics sample count does not match manifest")
+    if grouped_split_sha256 is not None and str(
+        label_stats.get("split_index_sha256", "")
+    ) != grouped_split_sha256:
+        raise RuntimeError("train label statistics use a different split index")
     use_schema_visibility = bool(
         config["loss"].get("use_schema_visibility_thresholds", False)
     )
@@ -294,8 +333,12 @@ def main() -> int:
         observable_class_counts
     )
     data_root = Path(data_config["root"])
-    train_shards = discover_shards(data_root, "train")
-    val_shards = discover_shards(data_root, "val")
+    if split_index_path:
+        train_shards = discover_all_shards(data_root)
+        val_shards = list(train_shards)
+    else:
+        train_shards = discover_shards(data_root, "train")
+        val_shards = discover_shards(data_root, "val")
     data_fraction = float(data_config["fraction"])
     minimum_train_shards = world_size * max(1, int(train_config["num_workers"]))
     train_shards = evenly_spaced_fraction(
@@ -333,6 +376,7 @@ def main() -> int:
         shuffle_buffer=int(data_config["shuffle_buffer"]),
         seed=int(config["seed"]),
         sample_fraction=1.0,
+        sample_ids=split_ids.get("train"),
         require_side_view=use_side_view,
         rank=rank,
         world_size=world_size,
@@ -356,6 +400,7 @@ def main() -> int:
             shuffle_buffer=1,
             seed=int(config["seed"]),
             sample_fraction=data_fraction,
+            sample_ids=split_ids.get("val"),
             require_side_view=use_side_view,
             rank=0,
             world_size=1,
@@ -423,6 +468,7 @@ def main() -> int:
             schema_sha256=schema.sha256,
             device=device,
             target_family=schema.target_family,
+            split_index_sha256=grouped_split_sha256,
         )
         start_epoch = int(checkpoint["epoch"]) + 1
         global_step = int(checkpoint.get("global_step", 0))
@@ -602,6 +648,7 @@ def main() -> int:
                 "ema": ema.state_dict(),
                 "config": config,
                 "schema": schema.checkpoint_metadata(),
+                "split_index_sha256": grouped_split_sha256,
                 "validation": validation_metrics,
             }
             atomic_checkpoint(output_dir / "last.pt", state)

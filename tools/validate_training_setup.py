@@ -17,29 +17,44 @@ if str(ROOT) not in sys.path:
 
 from ck3_training.config import load_config, validate_config
 from ck3_training.schema import CK3Schema, load_schema
+from ck3_training.split_index import (
+    file_sha256,
+    load_split_ids,
+    load_split_manifest,
+)
 
 
-def _first_json_label(path: Path) -> dict[str, Any]:
-    with tarfile.open(path, "r:") as archive:
-        for member in archive:
-            if member.isfile() and member.name.lower().endswith(".json"):
+def _first_json_label(
+    paths: list[Path], sample_ids: frozenset[str] | None = None
+) -> tuple[dict[str, Any], Path]:
+    for path in paths:
+        with tarfile.open(path, "r:") as archive:
+            for member in archive:
+                if not member.isfile() or not member.name.lower().endswith(".json"):
+                    continue
+                if sample_ids is not None and Path(member.name).stem not in sample_ids:
+                    continue
                 stream = archive.extractfile(member)
                 if stream is None:
                     raise RuntimeError(f"cannot extract {member.name} from {path}")
-                return json.loads(stream.read().decode("utf-8"))
-    raise RuntimeError(f"no JSON label in {path}")
+                return json.loads(stream.read().decode("utf-8")), path
+    raise RuntimeError("no matching JSON label in configured shards")
 
 
-def _validate_split(data_root: Path, split: str, schema: CK3Schema) -> dict[str, Any]:
-    shards = sorted((data_root / split).glob(f"{split}-*.tar"))
+def _validate_split(
+    shards: list[Path],
+    split: str,
+    schema: CK3Schema,
+    sample_ids: frozenset[str] | None = None,
+) -> dict[str, Any]:
     if not shards:
-        raise FileNotFoundError(f"no {split} shards under {data_root}")
-    source = _first_json_label(shards[0])
+        raise FileNotFoundError(f"no shards configured for {split}")
+    source, source_shard = _first_json_label(shards, sample_ids)
     adapted = schema.adapt_label(source)
     schema.validate_label(adapted)
     return {
         "shard_count": len(shards),
-        "first_shard": str(shards[0]),
+        "first_shard": str(source_shard),
         "sample_id": adapted.get("sample_id"),
         "source_signed_dim": len(source.get("signed", ())),
         "scalar_dim": len(adapted.get("scalar", ())),
@@ -57,7 +72,29 @@ def validate_setup(config_path: Path) -> dict[str, Any]:
     stats = json.loads(Path(data["train_label_stats"]).read_text(encoding="utf-8"))
     if not schema.accepts_statistics_schema(str(stats.get("schema_sha256", ""))):
         raise RuntimeError("training statistics are incompatible with schema")
-    train_count = int(manifest["split"]["counts"]["train"])
+    split_index_path = data.get("split_index")
+    split_ids: dict[str, frozenset[str]] = {}
+    if split_index_path:
+        split_index_path = Path(split_index_path)
+        split_manifest = load_split_manifest(split_index_path)
+        if str(split_manifest.get("schema_sha256", "")) != schema.sha256:
+            raise RuntimeError("split index uses a different schema")
+        split_ids = {
+            split: load_split_ids(split_index_path, split)
+            for split in ("train", "val")
+        }
+        overlap = split_ids["train"] & split_ids["val"]
+        if overlap:
+            raise RuntimeError(
+                f"split index has {len(overlap)} sample ids in both train and val"
+            )
+        train_count = int(split_manifest["counts"]["train"])
+        if str(stats.get("split_index_sha256", "")) != file_sha256(
+            split_index_path
+        ):
+            raise RuntimeError("training statistics use a different split index")
+    else:
+        train_count = int(manifest["split"]["counts"]["train"])
     if int(stats.get("sample_count", -1)) != train_count:
         raise RuntimeError("training statistics sample count does not match manifest")
     schema.adapt_class_counts(stats["categorical_class_counts"])
@@ -87,8 +124,26 @@ def validate_setup(config_path: Path) -> dict[str, Any]:
             )
         profile_coverage[key] = len(profile_fields & target_fields)
     data_root = Path(data["root"])
+    if split_index_path:
+        all_shards = []
+        for physical_split in ("train", "val", "test"):
+            all_shards.extend(
+                sorted(
+                    (data_root / physical_split).glob(
+                        f"{physical_split}-*.tar"
+                    )
+                )
+            )
+        split_shards = {"train": all_shards, "val": all_shards}
+    else:
+        split_shards = {
+            split: sorted((data_root / split).glob(f"{split}-*.tar"))
+            for split in ("train", "val")
+        }
     splits = {
-        split: _validate_split(data_root, split, schema)
+        split: _validate_split(
+            split_shards[split], split, schema, split_ids.get(split)
+        )
         for split in ("train", "val")
     }
     return {
@@ -101,6 +156,7 @@ def validate_setup(config_path: Path) -> dict[str, Any]:
         "signed_dim": schema.signed_dim,
         "categorical_dim": schema.categorical_dim,
         "legacy_statistics_adapted": stats.get("schema_sha256") != schema.sha256,
+        "grouped_split": bool(split_index_path),
         "loss_profile_coverage": profile_coverage,
         "splits": splits,
     }
