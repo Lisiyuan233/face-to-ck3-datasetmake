@@ -69,7 +69,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config", default="configs/train_convnext_tiny.json", type=Path
     )
-    parser.add_argument("--resume", type=Path)
+    initialization = parser.add_mutually_exclusive_group()
+    initialization.add_argument(
+        "--resume",
+        type=Path,
+        help="resume model, optimizer, scheduler, EMA, epoch, and early stopping",
+    )
+    initialization.add_argument(
+        "--finetune-from",
+        type=Path,
+        help=(
+            "initialize model weights from a checkpoint while resetting optimizer, "
+            "scheduler, EMA, epoch, and early stopping"
+        ),
+    )
+    parser.add_argument(
+        "--finetune-raw-weights",
+        action="store_true",
+        help="use raw rather than EMA weights with --finetune-from",
+    )
     parser.add_argument(
         "--reset-selection-state",
         action="store_true",
@@ -160,6 +178,33 @@ def load_resume(
     split_index_sha256: str | None = None,
 ) -> dict[str, Any]:
     checkpoint = torch.load(path, map_location=device, weights_only=False)
+    _validate_checkpoint_compatibility(
+        checkpoint,
+        model=model,
+        schema_sha256=schema_sha256,
+        target_family=target_family,
+        split_index_sha256=split_index_sha256,
+    )
+    model.load_state_dict(checkpoint["model"], strict=True)
+    optimizer.load_state_dict(checkpoint["optimizer"])
+    scheduler.load_state_dict(checkpoint["scheduler"])
+    if checkpoint.get("scaler"):
+        scaler.load_state_dict(checkpoint["scaler"])
+    if checkpoint.get("ema"):
+        ema.load_state_dict(checkpoint["ema"])
+    return checkpoint
+
+
+def _validate_checkpoint_compatibility(
+    checkpoint: dict[str, Any],
+    *,
+    model: nn.Module,
+    schema_sha256: str,
+    target_family: str = TARGET_FAMILY,
+    split_index_sha256: str | None = None,
+) -> None:
+    """Reject checkpoint initialization across incompatible targets or models."""
+
     saved_split_index_sha256 = checkpoint.get("split_index_sha256")
     if saved_split_index_sha256 != split_index_sha256:
         raise RuntimeError(
@@ -219,14 +264,57 @@ def load_resume(
         raise RuntimeError(
             f"checkpoint schema {saved_schema} does not match current schema {schema_sha256}"
         )
+
+
+def load_finetune_weights(
+    path: Path,
+    *,
+    model: nn.Module,
+    schema_sha256: str,
+    device: torch.device,
+    target_family: str = TARGET_FAMILY,
+    split_index_sha256: str | None = None,
+    raw_weights: bool = False,
+) -> dict[str, Any]:
+    """Load model/EMA weights only and return auditable initialization metadata."""
+
+    # Keep unused optimizer/scheduler tensors from the source checkpoint off the
+    # GPU; only model parameters are copied to the requested device below.
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    _validate_checkpoint_compatibility(
+        checkpoint,
+        model=model,
+        schema_sha256=schema_sha256,
+        target_family=target_family,
+        split_index_sha256=split_index_sha256,
+    )
+    # Raw state includes parameters and persistent buffers. EMA, when selected,
+    # then replaces every parameter while retaining those validated buffers.
     model.load_state_dict(checkpoint["model"], strict=True)
-    optimizer.load_state_dict(checkpoint["optimizer"])
-    scheduler.load_state_dict(checkpoint["scheduler"])
-    if checkpoint.get("scaler"):
-        scaler.load_state_dict(checkpoint["scaler"])
-    if checkpoint.get("ema"):
-        ema.load_state_dict(checkpoint["ema"])
-    return checkpoint
+    weight_source = "raw"
+    if not raw_weights:
+        shadow = checkpoint.get("ema", {}).get("shadow", {})
+        if not isinstance(shadow, dict) or not shadow:
+            raise RuntimeError(
+                "checkpoint has no EMA weights; use --finetune-raw-weights explicitly"
+            )
+        parameters = dict(model.named_parameters())
+        missing = sorted(set(parameters) - set(shadow))
+        if missing:
+            raise RuntimeError(
+                "checkpoint EMA is missing model parameters: " + ", ".join(missing[:5])
+            )
+        with torch.no_grad():
+            for name, parameter in parameters.items():
+                parameter.copy_(shadow[name].to(device=device, dtype=parameter.dtype))
+        weight_source = "ema"
+    return {
+        "mode": "finetune",
+        "source_checkpoint": str(path.resolve()),
+        "source_epoch": int(checkpoint.get("epoch", -1)),
+        "source_global_step": int(checkpoint.get("global_step", 0)),
+        "weight_source": weight_source,
+    }
 
 
 def _selection_signature(config: dict[str, Any]) -> dict[str, float | int]:
@@ -245,6 +333,10 @@ def main() -> int:
     args = parse_args()
     if args.reset_selection_state and args.resume is None:
         raise ValueError("--reset-selection-state requires --resume")
+    if args.finetune_raw_weights and args.finetune_from is None:
+        raise ValueError("--finetune-raw-weights requires --finetune-from")
+    if args.smoke_test and args.finetune_from is not None:
+        raise ValueError("--smoke-test changes the architecture and cannot fine-tune")
     rank, world_size, local_rank, device = distributed_context(args.device)
     config = load_config(args.config)
     if args.data_fraction is not None:
@@ -414,9 +506,23 @@ def main() -> int:
         )
 
     model_config = dict(config["model"])
-    if args.resume:
+    if args.resume or args.finetune_from:
         model_config["pretrained"] = False
     model = FaceToCK3Model(schema, model_config).to(device)
+    initialization_metadata: dict[str, Any] = {"mode": "fresh"}
+    if args.finetune_from:
+        initialization_metadata = load_finetune_weights(
+            args.finetune_from,
+            model=model,
+            schema_sha256=schema.sha256,
+            device=device,
+            target_family=schema.target_family,
+            split_index_sha256=grouped_split_sha256,
+            raw_weights=bool(args.finetune_raw_weights),
+        )
+        initialization_metadata["source_checkpoint_sha256"] = file_sha256(
+            args.finetune_from
+        )
     criterion = MultitaskLoss(
         schema, config["loss"], observable_class_counts
     ).to(device)
@@ -470,6 +576,21 @@ def main() -> int:
             target_family=schema.target_family,
             split_index_sha256=grouped_split_sha256,
         )
+        saved_initialization = checkpoint.get("initialization")
+        if isinstance(saved_initialization, dict):
+            initialization_metadata = dict(saved_initialization)
+        else:
+            initialization_metadata = {"mode": "resume"}
+        resume_history = list(initialization_metadata.get("resume_history", []))
+        resume_history.append(
+            {
+                "checkpoint": str(args.resume.resolve()),
+                "checkpoint_sha256": file_sha256(args.resume),
+                "epoch": int(checkpoint.get("epoch", -1)),
+                "global_step": int(checkpoint.get("global_step", 0)),
+            }
+        )
+        initialization_metadata["resume_history"] = resume_history
         start_epoch = int(checkpoint["epoch"]) + 1
         global_step = int(checkpoint.get("global_step", 0))
         saved_selection = _selection_signature(
@@ -533,6 +654,10 @@ def main() -> int:
                 criterion.profile_metadata(), ensure_ascii=False, indent=2
             )
             + "\n",
+            encoding="utf-8",
+        )
+        (output_dir / "initialization.json").write_text(
+            json.dumps(initialization_metadata, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         print(
@@ -649,6 +774,7 @@ def main() -> int:
                 "config": config,
                 "schema": schema.checkpoint_metadata(),
                 "split_index_sha256": grouped_split_sha256,
+                "initialization": initialization_metadata,
                 "validation": validation_metrics,
             }
             atomic_checkpoint(output_dir / "last.pt", state)
