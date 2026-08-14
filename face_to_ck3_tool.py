@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import queue
 import time
@@ -29,6 +30,21 @@ from ck3_collection import (
     VerifiedCollector,
     discover_collection_state,
 )
+
+
+SETTINGS_FILENAME = "collection_settings.json"
+SETTINGS_VERSION = 1
+VALIDATION_SETTING_SPECS = (
+    ("剪贴板轮询间隔（秒）", "clipboard_delay", float),
+    ("剪贴板更新超时（秒）", "clipboard_timeout", float),
+    ("随机生成后初始等待（秒）", "ui_update_delay", float),
+    ("DNA 稳定复核间隔（秒）", "stability_check_delay", float),
+    ("单次稳定等待超时（秒）", "stability_timeout", float),
+    ("DNA 稳定后截图等待（秒）", "screenshot_delay", float),
+    ("随机生成最大尝试次数", "randomize_retries", int),
+    ("样本事务额外重试次数", "sample_retries", int),
+)
+
 
 class FaceToCK3Tool:
     def __init__(self, base_dir=None):
@@ -58,6 +74,182 @@ class FaceToCK3Tool:
         self.screenshot_delay = 0.50
         self.randomize_retries = 4
         self.sample_retries = 2
+        self.default_count = 1000
+
+        self.settings_load_error = None
+        self.load_settings()
+
+    @property
+    def settings_path(self):
+        return os.path.join(self.base_dir, SETTINGS_FILENAME)
+
+    @staticmethod
+    def _optional_integer_tuple(value, length, label):
+        if value is None:
+            return None
+        if not isinstance(value, (list, tuple)) or len(value) != length:
+            raise ValueError(f"{label}必须包含 {length} 个整数")
+        result = []
+        for item in value:
+            if (
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(float(item))
+                or not float(item).is_integer()
+            ):
+                raise ValueError(f"{label}必须包含 {length} 个整数")
+            result.append(int(item))
+        return tuple(result)
+
+    @staticmethod
+    def _integer_setting(value, label):
+        if isinstance(value, bool):
+            raise ValueError(f"{label}必须是整数")
+        if isinstance(value, float) and (
+            not math.isfinite(value) or not value.is_integer()
+        ):
+            raise ValueError(f"{label}必须是整数")
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError(f"{label}必须是整数") from error
+
+    def _settings_payload(self):
+        return {
+            "version": SETTINGS_VERSION,
+            "region": self.region,
+            "copy_dna_button_pos": self.copy_dna_button_pos,
+            "random_generate_button_pos": self.random_generate_button_pos,
+            "clipboard_delay": self.clipboard_delay,
+            "clipboard_timeout": self.clipboard_timeout,
+            "ui_update_delay": self.ui_update_delay,
+            "stability_check_delay": self.stability_check_delay,
+            "stability_timeout": self.stability_timeout,
+            "screenshot_delay": self.screenshot_delay,
+            "randomize_retries": self.randomize_retries,
+            "sample_retries": self.sample_retries,
+            "default_count": self.default_count,
+        }
+
+    def _normalize_settings(self, payload):
+        if not isinstance(payload, dict):
+            raise ValueError("设置文件内容必须是 JSON 对象")
+        if (
+            type(payload.get("version")) is not int
+            or payload["version"] != SETTINGS_VERSION
+        ):
+            raise ValueError(f"不支持的设置版本: {payload.get('version')!r}")
+
+        current = self._settings_payload()
+        normalized = {
+            "version": SETTINGS_VERSION,
+            "region": self._optional_integer_tuple(
+                payload.get("region", current["region"]), 4, "截图区域"
+            ),
+            "copy_dna_button_pos": self._optional_integer_tuple(
+                payload.get(
+                    "copy_dna_button_pos", current["copy_dna_button_pos"]
+                ),
+                2,
+                "复制 DNA 按钮位置",
+            ),
+            "random_generate_button_pos": self._optional_integer_tuple(
+                payload.get(
+                    "random_generate_button_pos",
+                    current["random_generate_button_pos"],
+                ),
+                2,
+                "随机生成按钮位置",
+            ),
+        }
+        for _label, attribute, converter in VALIDATION_SETTING_SPECS:
+            value = payload.get(attribute, current[attribute])
+            if converter is int:
+                converted = self._integer_setting(value, attribute)
+            else:
+                if isinstance(value, bool):
+                    raise ValueError(f"{attribute} 的值无效")
+                try:
+                    converted = converter(value)
+                except (TypeError, ValueError, OverflowError) as error:
+                    raise ValueError(f"{attribute} 的值无效") from error
+                if not math.isfinite(converted):
+                    raise ValueError(f"{attribute} 必须是有限数值")
+            normalized[attribute] = converted
+
+        count = payload.get("default_count", current["default_count"])
+        try:
+            count = self._integer_setting(count, "循环次数")
+        except ValueError as error:
+            raise ValueError("循环次数必须是正整数") from error
+        if count <= 0:
+            raise ValueError("循环次数必须是正整数")
+        normalized["default_count"] = count
+
+        CollectionConfig(
+            screenshot_region=normalized["region"] or (0, 0, 1, 1),
+            copy_dna_button=normalized["copy_dna_button_pos"] or (0, 0),
+            random_generate_button=(
+                normalized["random_generate_button_pos"] or (0, 0)
+            ),
+            clipboard_settle_delay=normalized["clipboard_delay"],
+            clipboard_timeout=normalized["clipboard_timeout"],
+            ui_settle_delay=normalized["ui_update_delay"],
+            stability_check_delay=normalized["stability_check_delay"],
+            stability_timeout=normalized["stability_timeout"],
+            screenshot_delay=normalized["screenshot_delay"],
+            randomize_retries=normalized["randomize_retries"],
+            sample_retries=normalized["sample_retries"],
+        ).validate()
+        return normalized
+
+    def _apply_settings(self, settings):
+        self.region = settings["region"]
+        self.copy_dna_button_pos = settings["copy_dna_button_pos"]
+        self.random_generate_button_pos = settings["random_generate_button_pos"]
+        for _label, attribute, _converter in VALIDATION_SETTING_SPECS:
+            setattr(self, attribute, settings[attribute])
+        self.default_count = settings["default_count"]
+
+    def _write_settings(self, settings):
+        temporary = self.settings_path + ".partial"
+        try:
+            with open(temporary, "w", encoding="utf-8") as stream:
+                json.dump(settings, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            os.replace(temporary, self.settings_path)
+        except Exception:
+            try:
+                if os.path.exists(temporary):
+                    os.remove(temporary)
+            except OSError:
+                pass
+            raise
+
+    def update_settings(self, **changes):
+        """Validate and atomically persist settings before applying them."""
+        payload = self._settings_payload()
+        payload.update(changes)
+        settings = self._normalize_settings(payload)
+        self._write_settings(settings)
+        self._apply_settings(settings)
+
+    def save_settings(self):
+        self.update_settings()
+
+    def load_settings(self):
+        """Load dataset-local settings, falling back safely on any error."""
+        if not os.path.isfile(self.settings_path):
+            return False
+        try:
+            with open(self.settings_path, "r", encoding="utf-8") as stream:
+                settings = self._normalize_settings(json.load(stream))
+            self._apply_settings(settings)
+            self.settings_load_error = None
+            return True
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            self.settings_load_error = str(error)
+            return False
 
     @staticmethod
     def _require_gui_dependencies():
@@ -86,19 +278,24 @@ class FaceToCK3Tool:
         width = right - left
         height = bottom - top
         
-        self.region = (left, top, width, height)
+        region = (left, top, width, height)
         
         messagebox.showinfo("设置完成", f"截图区域已设置为: 左上角({left}, {top}), 宽度:{width}, 高度:{height}")
         
         # 截取一张测试图片
-        screenshot = pyautogui.screenshot(region=self.region)
+        screenshot = pyautogui.screenshot(region=region)
         test_path = os.path.join(self.face_dir, "test_region.png")
         screenshot.save(test_path)
         
         result = messagebox.askyesno("确认区域", f"测试截图已保存到 {test_path}\n是否确认使用此区域？")
         if not result:
+            root.destroy()
             self.setup_region()
-            
+            return
+        try:
+            self.update_settings(region=region)
+        except (OSError, TypeError, ValueError) as error:
+            messagebox.showerror("保存失败", f"截图区域未保存：{error}")
         root.destroy()
     
     def setup_buttons(self):
@@ -108,13 +305,20 @@ class FaceToCK3Tool:
         
         # 设置复制DNA按钮位置
         messagebox.showinfo("设置按钮位置", "请将鼠标移动到'复制DNA'按钮上，按空格键确认")
-        self.copy_dna_button_pos = pyautogui.position()
+        copy_dna_button_pos = tuple(pyautogui.position())
         
         # 设置随机生成外貌按钮位置
         messagebox.showinfo("设置按钮位置", "请将鼠标移动到'随机生成外貌'按钮上，按空格键确认")
-        self.random_generate_button_pos = pyautogui.position()
+        random_generate_button_pos = tuple(pyautogui.position())
         
-        messagebox.showinfo("设置完成", "按钮位置设置完成")
+        try:
+            self.update_settings(
+                copy_dna_button_pos=copy_dna_button_pos,
+                random_generate_button_pos=random_generate_button_pos,
+            )
+            messagebox.showinfo("设置完成", "按钮位置已保存")
+        except (OSError, TypeError, ValueError) as error:
+            messagebox.showerror("保存失败", f"按钮位置未保存：{error}")
         root.destroy()
     
     def collection_config(self) -> CollectionConfig:
@@ -145,20 +349,12 @@ class FaceToCK3Tool:
         settings_window.geometry("460x410")
         settings_window.resizable(False, False)
 
-        specs = (
-            ("剪贴板轮询间隔（秒）", "clipboard_delay", float),
-            ("剪贴板更新超时（秒）", "clipboard_timeout", float),
-            ("随机生成后初始等待（秒）", "ui_update_delay", float),
-            ("DNA 稳定复核间隔（秒）", "stability_check_delay", float),
-            ("单次稳定等待超时（秒）", "stability_timeout", float),
-            ("DNA 稳定后截图等待（秒）", "screenshot_delay", float),
-            ("随机生成最大尝试次数", "randomize_retries", int),
-            ("样本事务额外重试次数", "sample_retries", int),
-        )
         variables = {}
         form = tk.Frame(settings_window)
         form.pack(fill=tk.X, padx=24, pady=14)
-        for row, (label, attribute, _converter) in enumerate(specs):
+        for row, (label, attribute, _converter) in enumerate(
+            VALIDATION_SETTING_SPECS
+        ):
             tk.Label(form, text=label).grid(row=row, column=0, sticky="w", pady=5)
             variable = tk.StringVar(value=str(getattr(self, attribute)))
             variables[attribute] = variable
@@ -168,12 +364,14 @@ class FaceToCK3Tool:
 
         def save_settings():
             try:
-                for _label, attribute, converter in specs:
-                    setattr(self, attribute, converter(variables[attribute].get()))
-                self.collection_config().validate()
-                messagebox.showinfo("成功", "设置已保存")
+                changes = {
+                    attribute: converter(variables[attribute].get())
+                    for _label, attribute, converter in VALIDATION_SETTING_SPECS
+                }
+                self.update_settings(**changes)
+                messagebox.showinfo("成功", f"设置已保存到 {self.settings_path}")
                 settings_window.destroy()
-            except (TypeError, ValueError) as error:
+            except (OSError, TypeError, ValueError) as error:
                 messagebox.showerror("错误", str(error))
 
         buttons = tk.Frame(settings_window)
@@ -313,6 +511,15 @@ class FaceToCK3Tool:
         root = tk.Tk()
         root.title("Face to CK3 数据收集工具")
         root.geometry("450x350")
+
+        if self.settings_load_error:
+            root.after_idle(
+                lambda: messagebox.showwarning(
+                    "设置加载失败",
+                    f"无法读取 {self.settings_path}，已使用默认值：\n"
+                    f"{self.settings_load_error}",
+                )
+            )
         
         # 欢迎信息
         welcome_label = tk.Label(root, text="欢迎使用Face to CK3数据收集工具", font=("Arial", 12))
@@ -335,7 +542,7 @@ class FaceToCK3Tool:
         
         tk.Label(count_frame, text="循环次数:").pack(side=tk.LEFT, padx=5)
         
-        count_var = tk.StringVar(value="1000")
+        count_var = tk.StringVar(value=str(self.default_count))
         count_entry = tk.Entry(count_frame, textvariable=count_var, width=10)
         count_entry.pack(side=tk.LEFT, padx=5)
         
@@ -366,6 +573,11 @@ class FaceToCK3Tool:
         def start_automation():
             count = validate_count()
             if count:
+                try:
+                    self.update_settings(default_count=count)
+                except (OSError, TypeError, ValueError) as error:
+                    messagebox.showerror("保存失败", f"循环次数未保存：{error}")
+                    return
                 self.run_automation(count)
         
         run_button = tk.Button(root, text="开始运行", command=start_automation, bg="green", fg="white")
