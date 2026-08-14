@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -8,6 +10,14 @@ import face_to_ck3_gui
 
 
 class FaceToCK3GUITests(unittest.TestCase):
+    def test_resource_root_uses_pyinstaller_bundle_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            sys, "_MEIPASS", directory, create=True
+        ):
+            self.assertEqual(
+                face_to_ck3_gui.resource_root(), face_to_ck3_gui.Path(directory)
+            )
+
     def test_wsl_fontconfig_is_selected_when_windows_fonts_exist(self) -> None:
         with mock.patch.object(face_to_ck3_gui.sys, "platform", "linux"), mock.patch.object(
             face_to_ck3_gui.Path, "is_dir", return_value=True
@@ -24,6 +34,8 @@ class FaceToCK3GUITests(unittest.TestCase):
         completed = mock.Mock(returncode=0, stderr=b"")
         with mock.patch.object(face_to_ck3_gui, "is_wsl", return_value=True), mock.patch.object(
             face_to_ck3_gui, "WINDOWS_CLIP", face_to_ck3_gui.Path("/bin/true")
+        ), mock.patch.object(
+            face_to_ck3_gui.Path, "is_file", return_value=True
         ), mock.patch.object(
             face_to_ck3_gui.subprocess, "run", return_value=completed
         ) as run:

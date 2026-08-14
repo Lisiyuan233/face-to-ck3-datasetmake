@@ -15,7 +15,20 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+
+def _frozen_self_test_log(message: str) -> None:
+    if not getattr(sys, "frozen", False) or "--self-test" not in sys.argv:
+        return
+    path = Path(sys.executable).with_name("FaceToCK3-self-test.log")
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(message.rstrip() + "\n")
+
+
+_frozen_self_test_log("START: executable entry reached")
+
 from PIL import Image
+
+_frozen_self_test_log("OK: Pillow imported")
 
 from ck3_inference import (
     CK3Predictor,
@@ -25,8 +38,16 @@ from ck3_inference import (
     prepare_input_views,
 )
 
+_frozen_self_test_log("OK: Torch and inference modules imported")
 
-ROOT = Path(__file__).resolve().parent
+
+def resource_root() -> Path:
+    """Return the source tree or PyInstaller's temporary bundle directory."""
+
+    return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+
+
+ROOT = resource_root()
 DEFAULT_CHECKPOINT = (
     ROOT
     / "runs"
@@ -152,7 +173,45 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quality", type=Path, default=DEFAULT_QUALITY)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
+
+
+def run_self_test(args: argparse.Namespace) -> None:
+    """Exercise bundled resources and one CPU forward pass without opening Tk."""
+
+    resources = {
+        "checkpoint": args.checkpoint,
+        "schema": args.schema,
+        "template": args.template,
+        "quality": args.quality,
+        "manifest": args.manifest,
+    }
+    missing = [f"{name}: {path}" for name, path in resources.items() if not path.is_file()]
+    if missing:
+        raise FileNotFoundError("缺少内嵌资源：\n" + "\n".join(missing))
+    _frozen_self_test_log("OK: bundled resource files found")
+
+    predictor = CK3Predictor(args.checkpoint, args.schema, device="cpu")
+    _frozen_self_test_log("OK: checkpoint loaded")
+    try:
+        width, height = predictor.model_size
+        image = Image.new("RGB", (width, height), "#808080")
+        prediction = predictor.predict_normalized(image, image.copy())
+        _frozen_self_test_log("OK: CPU forward pass completed")
+        build_dna_from_prediction(
+            template_text=args.template.read_text(encoding="utf-8-sig"),
+            prediction=prediction,
+            schema_path=args.schema,
+            quality=load_field_quality(args.quality),
+            minimum_improvement=0.25,
+            weight_source=predictor.weight_source,
+            used_side_fallback=True,
+        )
+        load_preprocessing_manifest(args.manifest)
+        _frozen_self_test_log("OK: DNA output and preprocessing manifest validated")
+    finally:
+        predictor.close()
 
 
 class FaceToCK3GUI:
@@ -505,6 +564,15 @@ class FaceToCK3GUI:
 
 def main() -> int:
     args = parse_args()
+    if args.self_test:
+        try:
+            run_self_test(args)
+        except Exception:
+            if getattr(sys, "frozen", False):
+                _frozen_self_test_log(traceback.format_exc())
+            raise
+        _frozen_self_test_log("PASS: bundled resources loaded and CPU inference completed")
+        return 0
     prepare_wsl_fonts()
     try:
         import tkinter as tk

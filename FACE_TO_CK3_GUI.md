@@ -57,6 +57,38 @@ GUI 支持两种方式：
 4. 点击“复制 DNA”，然后在 CK3 统治者设计器中使用粘贴 DNA 功能。
 5. “保存 DNA”会同时保存 `.txt` DNA 和一个来源 `.json`。
 
+## 打包为单文件 Windows EXE
+
+打包配置会把 CPU 版 PyTorch、GUI 代码、仅推理 EMA checkpoint、schema、默认 DNA
+模板、字段质量表和裁图 manifest 全部放进 `FaceToCK3.exe`。仅推理 checkpoint
+会去掉优化器、调度器和重复的训练权重，预测权重仍与默认 `best.pt` 的 EMA 完全一致。
+
+在 Windows PowerShell 中执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\packaging\build_exe.ps1
+```
+
+脚本默认优先使用项目内的 `.python-build\python.exe`，也可以显式指定：
+
+```powershell
+.\packaging\build_exe.ps1 -Python C:\Python312\python.exe
+```
+
+产物位于 `dist\FaceToCK3.exe`。它不需要目标电脑另装 Python；由于单文件程序首次
+启动时需要把 PyTorch 和模型释放到系统临时目录，启动会比普通程序慢，并需要约
+1 GB 的临时磁盘空间。该构建使用 CPU 版 PyTorch，因此可在没有 NVIDIA 显卡的
+Windows 10/11 x64 电脑上运行。
+
+构建后可执行不打开窗口的完整自检（会加载内嵌模型并跑一次 CPU 前向推理）：
+
+```powershell
+.\dist\FaceToCK3.exe --self-test
+if ($LASTEXITCODE -ne 0) { throw "EXE 自检失败" }
+```
+
+自检结果同时写入 EXE 同目录的 `FaceToCK3-self-test.log`，方便诊断无控制台构建。
+
 在 WSLg 下，“复制 DNA”会直接调用 Windows 的 `clip.exe`，不会使用 Tk/X11 剪贴板桥接。这可以避免复制较长 DNA 时出现 `X connection to :0 broken` 并导致 GUI 退出。
 
 ## 限制

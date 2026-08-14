@@ -197,8 +197,14 @@ class CK3Predictor:
         model_config["pretrained"] = False
         self.model = FaceToCK3Model(self.schema, model_config)
         self.model.load_state_dict(checkpoint["model"], strict=True)
-        self.weight_source = "raw"
-        if not raw_weights:
+        inference_weight_source = checkpoint.get("inference_weight_source")
+        if inference_weight_source is not None:
+            if raw_weights:
+                raise RuntimeError("仅推理 checkpoint 不包含原始非 EMA 权重")
+            self.weight_source = str(inference_weight_source)
+        elif raw_weights:
+            self.weight_source = "raw"
+        else:
             shadow = checkpoint.get("ema", {}).get("shadow", {})
             parameters = dict(self.model.named_parameters())
             missing = sorted(set(parameters) - set(shadow))
