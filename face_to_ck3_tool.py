@@ -33,7 +33,7 @@ from ck3_collection import (
 
 
 SETTINGS_FILENAME = "collection_settings.json"
-SETTINGS_VERSION = 1
+SETTINGS_VERSION = 2
 VALIDATION_SETTING_SPECS = (
     ("剪贴板轮询间隔（秒）", "clipboard_delay", float),
     ("剪贴板更新超时（秒）", "clipboard_timeout", float),
@@ -43,6 +43,8 @@ VALIDATION_SETTING_SPECS = (
     ("DNA 稳定后截图等待（秒）", "screenshot_delay", float),
     ("随机生成最大尝试次数", "randomize_retries", int),
     ("样本事务额外重试次数", "sample_retries", int),
+    ("每个种族的样本数", "race_group_size", int),
+    ("种族总数", "race_count", int),
 )
 
 
@@ -64,6 +66,11 @@ class FaceToCK3Tool:
         self.region = None  # 截图区域 (left, top, width, height)
         self.copy_dna_button_pos = None  # 复制DNA按钮位置
         self.random_generate_button_pos = None  # 随机生成外貌按钮位置
+        self.race_button_pos = None  # 打开种族列表的位置
+        self.race_first_option_pos = None  # 种族列表第一项（用于推导行距）
+        self.race_second_option_pos = None  # 种族列表第二项（用于推导行距）
+        self.show_hair_beard_checkbox_pos = None
+        self.facial_structure_button_pos = None
         
         # 延迟设置
         self.clipboard_delay = 0.10
@@ -74,6 +81,11 @@ class FaceToCK3Tool:
         self.screenshot_delay = 0.50
         self.randomize_retries = 4
         self.sample_retries = 2
+        # Kept disabled until the race-layout calibration is completed.  The
+        # calibration action enables it atomically with all required positions.
+        self.auto_switch_race = False
+        self.race_group_size = 30_000
+        self.race_count = 17
         self.default_count = 1000
 
         self.settings_load_error = None
@@ -120,6 +132,11 @@ class FaceToCK3Tool:
             "region": self.region,
             "copy_dna_button_pos": self.copy_dna_button_pos,
             "random_generate_button_pos": self.random_generate_button_pos,
+            "race_button_pos": self.race_button_pos,
+            "race_first_option_pos": self.race_first_option_pos,
+            "race_second_option_pos": self.race_second_option_pos,
+            "show_hair_beard_checkbox_pos": self.show_hair_beard_checkbox_pos,
+            "facial_structure_button_pos": self.facial_structure_button_pos,
             "clipboard_delay": self.clipboard_delay,
             "clipboard_timeout": self.clipboard_timeout,
             "ui_update_delay": self.ui_update_delay,
@@ -128,6 +145,9 @@ class FaceToCK3Tool:
             "screenshot_delay": self.screenshot_delay,
             "randomize_retries": self.randomize_retries,
             "sample_retries": self.sample_retries,
+            "auto_switch_race": self.auto_switch_race,
+            "race_group_size": self.race_group_size,
+            "race_count": self.race_count,
             "default_count": self.default_count,
         }
 
@@ -136,7 +156,7 @@ class FaceToCK3Tool:
             raise ValueError("设置文件内容必须是 JSON 对象")
         if (
             type(payload.get("version")) is not int
-            or payload["version"] != SETTINGS_VERSION
+            or payload["version"] not in (1, SETTINGS_VERSION)
         ):
             raise ValueError(f"不支持的设置版本: {payload.get('version')!r}")
 
@@ -160,6 +180,41 @@ class FaceToCK3Tool:
                 ),
                 2,
                 "随机生成按钮位置",
+            ),
+            "race_button_pos": self._optional_integer_tuple(
+                payload.get("race_button_pos", current["race_button_pos"]),
+                2,
+                "种族按钮位置",
+            ),
+            "race_first_option_pos": self._optional_integer_tuple(
+                payload.get(
+                    "race_first_option_pos", current["race_first_option_pos"]
+                ),
+                2,
+                "种族列表第一项位置",
+            ),
+            "race_second_option_pos": self._optional_integer_tuple(
+                payload.get(
+                    "race_second_option_pos", current["race_second_option_pos"]
+                ),
+                2,
+                "种族列表第二项位置",
+            ),
+            "show_hair_beard_checkbox_pos": self._optional_integer_tuple(
+                payload.get(
+                    "show_hair_beard_checkbox_pos",
+                    current["show_hair_beard_checkbox_pos"],
+                ),
+                2,
+                "显示头发与胡须复选框位置",
+            ),
+            "facial_structure_button_pos": self._optional_integer_tuple(
+                payload.get(
+                    "facial_structure_button_pos",
+                    current["facial_structure_button_pos"],
+                ),
+                2,
+                "面部结构按钮位置",
             ),
         }
         for _label, attribute, converter in VALIDATION_SETTING_SPECS:
@@ -186,6 +241,13 @@ class FaceToCK3Tool:
             raise ValueError("循环次数必须是正整数")
         normalized["default_count"] = count
 
+        auto_switch_race = payload.get(
+            "auto_switch_race", current["auto_switch_race"]
+        )
+        if type(auto_switch_race) is not bool:
+            raise ValueError("auto_switch_race 必须是布尔值")
+        normalized["auto_switch_race"] = auto_switch_race
+
         CollectionConfig(
             screenshot_region=normalized["region"] or (0, 0, 1, 1),
             copy_dna_button=normalized["copy_dna_button_pos"] or (0, 0),
@@ -200,6 +262,16 @@ class FaceToCK3Tool:
             screenshot_delay=normalized["screenshot_delay"],
             randomize_retries=normalized["randomize_retries"],
             sample_retries=normalized["sample_retries"],
+            auto_switch_race=normalized["auto_switch_race"],
+            race_group_size=normalized["race_group_size"],
+            race_count=normalized["race_count"],
+            race_button=normalized["race_button_pos"],
+            race_first_option=normalized["race_first_option_pos"],
+            race_second_option=normalized["race_second_option_pos"],
+            show_hair_beard_checkbox=normalized[
+                "show_hair_beard_checkbox_pos"
+            ],
+            facial_structure_button=normalized["facial_structure_button_pos"],
         ).validate()
         return normalized
 
@@ -207,9 +279,19 @@ class FaceToCK3Tool:
         self.region = settings["region"]
         self.copy_dna_button_pos = settings["copy_dna_button_pos"]
         self.random_generate_button_pos = settings["random_generate_button_pos"]
+        self.race_button_pos = settings["race_button_pos"]
+        self.race_first_option_pos = settings["race_first_option_pos"]
+        self.race_second_option_pos = settings["race_second_option_pos"]
+        self.show_hair_beard_checkbox_pos = settings[
+            "show_hair_beard_checkbox_pos"
+        ]
+        self.facial_structure_button_pos = settings[
+            "facial_structure_button_pos"
+        ]
         for _label, attribute, _converter in VALIDATION_SETTING_SPECS:
             setattr(self, attribute, settings[attribute])
         self.default_count = settings["default_count"]
+        self.auto_switch_race = settings["auto_switch_race"]
 
     def _write_settings(self, settings):
         temporary = self.settings_path + ".partial"
@@ -320,6 +402,59 @@ class FaceToCK3Tool:
         except (OSError, TypeError, ValueError) as error:
             messagebox.showerror("保存失败", f"按钮位置未保存：{error}")
         root.destroy()
+
+    def setup_race_buttons(self):
+        """Calibrate the race list and the post-selection cleanup controls."""
+        root = tk.Tk()
+        root.withdraw()
+
+        messagebox.showinfo(
+            "设置种族切换",
+            "请将鼠标移动到左上角的“种族”按钮上，按空格键确认",
+        )
+        race_button_pos = tuple(pyautogui.position())
+
+        # Open the menu so its first two rows can be calibrated.  Their vector
+        # lets the collector address every race deterministically.
+        pyautogui.click(race_button_pos)
+        time.sleep(self.ui_update_delay)
+        messagebox.showinfo(
+            "设置种族切换",
+            "种族列表已打开。请将鼠标移动到列表第一项的中央，按空格键确认",
+        )
+        race_first_option_pos = tuple(pyautogui.position())
+        messagebox.showinfo(
+            "设置种族切换",
+            "请将鼠标移动到列表第二项的中央，按空格键确认（用于计算列表行距）",
+        )
+        race_second_option_pos = tuple(pyautogui.position())
+        messagebox.showinfo(
+            "设置种族切换",
+            "请将鼠标移动到“显示头发与胡须”复选框上，按空格键确认",
+        )
+        show_hair_beard_checkbox_pos = tuple(pyautogui.position())
+        messagebox.showinfo(
+            "设置种族切换",
+            "请将鼠标移动到“面部结构”按钮中央，按空格键确认",
+        )
+        facial_structure_button_pos = tuple(pyautogui.position())
+
+        try:
+            self.update_settings(
+                race_button_pos=race_button_pos,
+                race_first_option_pos=race_first_option_pos,
+                race_second_option_pos=race_second_option_pos,
+                show_hair_beard_checkbox_pos=show_hair_beard_checkbox_pos,
+                facial_structure_button_pos=facial_structure_button_pos,
+                auto_switch_race=True,
+            )
+            messagebox.showinfo(
+                "设置完成",
+                "种族切换位置已保存，并已启用自动切换种族",
+            )
+        except (OSError, TypeError, ValueError) as error:
+            messagebox.showerror("保存失败", f"种族切换位置未保存：{error}")
+        root.destroy()
     
     def collection_config(self) -> CollectionConfig:
         if self.region is None:
@@ -340,13 +475,21 @@ class FaceToCK3Tool:
             screenshot_delay=self.screenshot_delay,
             randomize_retries=self.randomize_retries,
             sample_retries=self.sample_retries,
+            auto_switch_race=self.auto_switch_race,
+            race_group_size=self.race_group_size,
+            race_count=self.race_count,
+            race_button=self.race_button_pos,
+            race_first_option=self.race_first_option_pos,
+            race_second_option=self.race_second_option_pos,
+            show_hair_beard_checkbox=self.show_hair_beard_checkbox_pos,
+            facial_structure_button=self.facial_structure_button_pos,
         )
     
     def open_settings(self):
         """Configure synchronization checks rather than blind fixed delays."""
         settings_window = tk.Toplevel()
         settings_window.title("采集校验设置")
-        settings_window.geometry("460x410")
+        settings_window.geometry("500x520")
         settings_window.resizable(False, False)
 
         variables = {}
@@ -362,12 +505,26 @@ class FaceToCK3Tool:
                 row=row, column=1, sticky="e", pady=5
             )
 
+        auto_switch_var = tk.BooleanVar(value=self.auto_switch_race)
+        tk.Checkbutton(
+            form,
+            text="每到种族块边界自动切换种族",
+            variable=auto_switch_var,
+        ).grid(
+            row=len(VALIDATION_SETTING_SPECS),
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=8,
+        )
+
         def save_settings():
             try:
                 changes = {
                     attribute: converter(variables[attribute].get())
                     for _label, attribute, converter in VALIDATION_SETTING_SPECS
                 }
+                changes["auto_switch_race"] = auto_switch_var.get()
                 self.update_settings(**changes)
                 messagebox.showinfo("成功", f"设置已保存到 {self.settings_path}")
                 settings_window.destroy()
@@ -402,7 +559,9 @@ class FaceToCK3Tool:
         progress_bar.pack(pady=10, padx=20, fill=tk.X)
         progress_text_var = tk.StringVar()
         progress_text_var.set(
-            f"准备从 face_{state.next_index:04d} 开始；只统计校验成功的样本"
+            f"准备从 face_{state.next_index:04d} 开始；"
+            f"每种族 {config.race_group_size} 个样本；"
+            f"自动切换{'已启用' if config.auto_switch_race else '未启用'}"
         )
         progress_label = tk.Label(progress_window, textvariable=progress_text_var)
         progress_label.pack(pady=5)
@@ -445,9 +604,11 @@ class FaceToCK3Tool:
                 )
                 previous_dna = state.previous_dna
                 for completed in range(count):
+                    sample_index = state.next_index + completed
+                    collector.prepare_race_for_sample(sample_index)
                     result = collector.collect_sample(
                         self.base_dir,
-                        state.next_index + completed,
+                        sample_index,
                         previous_dna,
                     )
                     previous_dna = result.dna_text
@@ -510,7 +671,7 @@ class FaceToCK3Tool:
         self._require_gui_dependencies()
         root = tk.Tk()
         root.title("Face to CK3 数据收集工具")
-        root.geometry("450x350")
+        root.geometry("520x430")
 
         if self.settings_load_error:
             root.after_idle(
@@ -531,29 +692,42 @@ class FaceToCK3Tool:
 2. 连续两次复制结果一致后截图
 3. 截图后再次验证 DNA 未变化
 4. 图片和 DNA 原子配对写入
+5. 每到种族块边界：选择下一种族、隐藏头发胡须、打开面部结构
 失败会重试，不占用 sample ID"""
         
         info_label = tk.Label(root, text=info_text, justify=tk.LEFT)
         info_label.pack(pady=10)
         
-        # 循环次数设置
+        # 本次采集数量
         count_frame = tk.Frame(root)
         count_frame.pack(pady=5)
         
-        tk.Label(count_frame, text="循环次数:").pack(side=tk.LEFT, padx=5)
+        tk.Label(count_frame, text="本次采集样本数:").pack(side=tk.LEFT, padx=5)
         
         count_var = tk.StringVar(value=str(self.default_count))
         count_entry = tk.Entry(count_frame, textvariable=count_var, width=10)
         count_entry.pack(side=tk.LEFT, padx=5)
+
+        # Keep the race-block size next to the run count so the two independent
+        # values cannot be mistaken for one another.
+        race_size_frame = tk.Frame(root)
+        race_size_frame.pack(pady=5)
+        tk.Label(race_size_frame, text="每个种族样本数:").pack(
+            side=tk.LEFT, padx=5
+        )
+        race_size_var = tk.StringVar(value=str(self.race_group_size))
+        tk.Entry(race_size_frame, textvariable=race_size_var, width=10).pack(
+            side=tk.LEFT, padx=5
+        )
         
-        def validate_count():
+        def validate_positive_integer(variable, label):
             try:
-                count = int(count_var.get())
-                if count <= 0:
+                value = int(variable.get())
+                if value <= 0:
                     raise ValueError("次数必须大于0")
-                return count
+                return value
             except ValueError:
-                messagebox.showerror("错误", "请输入有效的正整数")
+                messagebox.showerror("错误", f"{label}必须是正整数")
                 return None
         
         # 设置按钮
@@ -565,20 +739,36 @@ class FaceToCK3Tool:
         
         buttons_button = tk.Button(setup_frame, text="设置按钮位置", command=self.setup_buttons)
         buttons_button.pack(side=tk.LEFT, padx=5)
+
+        race_buttons_button = tk.Button(
+            setup_frame,
+            text="设置种族切换",
+            command=self.setup_race_buttons,
+        )
+        race_buttons_button.pack(side=tk.LEFT, padx=5)
         
         settings_button = tk.Button(setup_frame, text="校验设置", command=self.open_settings)
         settings_button.pack(side=tk.LEFT, padx=5)
         
         # 运行按钮
         def start_automation():
-            count = validate_count()
-            if count:
-                try:
-                    self.update_settings(default_count=count)
-                except (OSError, TypeError, ValueError) as error:
-                    messagebox.showerror("保存失败", f"循环次数未保存：{error}")
-                    return
-                self.run_automation(count)
+            count = validate_positive_integer(count_var, "本次采集样本数")
+            if count is None:
+                return
+            race_group_size = validate_positive_integer(
+                race_size_var, "每个种族样本数"
+            )
+            if race_group_size is None:
+                return
+            try:
+                self.update_settings(
+                    default_count=count,
+                    race_group_size=race_group_size,
+                )
+            except (OSError, TypeError, ValueError) as error:
+                messagebox.showerror("保存失败", f"采集参数未保存：{error}")
+                return
+            self.run_automation(count)
         
         run_button = tk.Button(root, text="开始运行", command=start_automation, bg="green", fg="white")
         run_button.pack(pady=10)

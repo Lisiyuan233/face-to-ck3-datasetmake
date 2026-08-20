@@ -24,6 +24,14 @@ class CollectionConfig:
     screenshot_region: tuple[int, int, int, int]
     copy_dna_button: tuple[int, int]
     random_generate_button: tuple[int, int]
+    auto_switch_race: bool = False
+    race_group_size: int = 30_000
+    race_count: int = 17
+    race_button: tuple[int, int] | None = None
+    race_first_option: tuple[int, int] | None = None
+    race_second_option: tuple[int, int] | None = None
+    show_hair_beard_checkbox: tuple[int, int] | None = None
+    facial_structure_button: tuple[int, int] | None = None
     clipboard_settle_delay: float = 0.10
     clipboard_timeout: float = 3.0
     ui_settle_delay: float = 1.5
@@ -61,6 +69,27 @@ class CollectionConfig:
             raise ValueError("randomize_retries 必须至少为 1")
         if self.sample_retries < 0:
             raise ValueError("sample_retries 不能小于 0")
+        if type(self.auto_switch_race) is not bool:
+            raise ValueError("auto_switch_race 必须是布尔值")
+        if self.race_group_size < 1:
+            raise ValueError("race_group_size 必须至少为 1")
+        if self.race_count < 2:
+            raise ValueError("race_count 必须至少为 2")
+        if self.auto_switch_race:
+            positions = {
+                "种族按钮": self.race_button,
+                "种族列表第一项": self.race_first_option,
+                "种族列表第二项": self.race_second_option,
+                "显示头发与胡须复选框": self.show_hair_beard_checkbox,
+                "面部结构按钮": self.facial_structure_button,
+            }
+            missing = [name for name, value in positions.items() if value is None]
+            if missing:
+                raise ValueError(
+                    "已启用自动切换种族，但以下位置未设置：" + "、".join(missing)
+                )
+            if self.race_first_option[1] == self.race_second_option[1]:
+                raise ValueError("种族列表第一项和第二项必须位于不同行")
 
 
 @dataclass(frozen=True)
@@ -190,6 +219,53 @@ class VerifiedCollector:
             )
         except self.pyautogui.FailSafeException as error:
             raise CollectionCancelled("移动鼠标离开工具栏时触发安全停止") from error
+
+    def prepare_race_for_sample(self, sample_index: int) -> bool:
+        """Select the deterministic race at a race-block boundary.
+
+        Selecting the absolute target entry, instead of blindly clicking a
+        relative "next" position, makes a boundary retry select the same race.
+        The first two configured entries define the list's vertical row step.
+        """
+        if sample_index < 1:
+            raise ValueError("sample_index 必须至少为 1")
+        if not self.config.auto_switch_race:
+            return False
+        zero_based = sample_index - 1
+        if sample_index == 1 or zero_based % self.config.race_group_size:
+            return False
+
+        target_group = zero_based // self.config.race_group_size
+        if target_group >= self.config.race_count:
+            raise RuntimeError(
+                f"样本 {sample_index} 需要种族组 {target_group + 1}，"
+                f"但只配置了 {self.config.race_count} 个种族"
+            )
+
+        first = self.config.race_first_option
+        second = self.config.race_second_option
+        assert first is not None and second is not None
+        target_option = (
+            first[0],
+            first[1] + (second[1] - first[1]) * target_group,
+        )
+        steps = (
+            ("点击种族按钮", self.config.race_button),
+            (f"选择第 {target_group + 1} 个种族", target_option),
+            ("取消显示头发与胡须", self.config.show_hair_beard_checkbox),
+            ("打开面部结构", self.config.facial_structure_button),
+        )
+        self.on_event(
+            f"到达种族边界：为 face_{sample_index:04d} 切换到"
+            f"第 {target_group + 1}/{self.config.race_count} 个种族"
+        )
+        for label, position in steps:
+            assert position is not None
+            self.on_event(label)
+            self._click(position)
+            self.sleep(self.config.ui_settle_delay)
+        self._park_mouse()
+        return True
 
     def copy_current_dna(self) -> tuple[str, DNARecord]:
         """Copy DNA with a sentinel so a missed/stale click cannot pass."""
@@ -325,4 +401,3 @@ class VerifiedCollector:
                     f"样本事务失败（{transaction_attempt}/{self.config.sample_retries + 1}）：{error}"
                 )
         raise RuntimeError("样本连续校验失败: " + " | ".join(errors[-3:]))
-

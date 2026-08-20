@@ -16,6 +16,11 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
                 region=(10, 20, 1245, 829),
                 copy_dna_button_pos=(100, 200),
                 random_generate_button_pos=(300, 400),
+                race_button_pos=(40, 80),
+                race_first_option_pos=(1900, 210),
+                race_second_option_pos=(1900, 263),
+                show_hair_beard_checkbox_pos=(62, 814),
+                facial_structure_button_pos=(220, 452),
                 clipboard_delay=0.2,
                 clipboard_timeout=4.5,
                 ui_update_delay=2.0,
@@ -24,6 +29,9 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
                 screenshot_delay=0.8,
                 randomize_retries=5,
                 sample_retries=3,
+                auto_switch_race=True,
+                race_group_size=30000,
+                race_count=17,
                 default_count=2500,
             )
 
@@ -31,6 +39,11 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
             self.assertEqual(restored.region, (10, 20, 1245, 829))
             self.assertEqual(restored.copy_dna_button_pos, (100, 200))
             self.assertEqual(restored.random_generate_button_pos, (300, 400))
+            self.assertEqual(restored.race_button_pos, (40, 80))
+            self.assertEqual(restored.race_first_option_pos, (1900, 210))
+            self.assertEqual(restored.race_second_option_pos, (1900, 263))
+            self.assertEqual(restored.show_hair_beard_checkbox_pos, (62, 814))
+            self.assertEqual(restored.facial_structure_button_pos, (220, 452))
             self.assertEqual(restored.clipboard_delay, 0.2)
             self.assertEqual(restored.clipboard_timeout, 4.5)
             self.assertEqual(restored.ui_update_delay, 2.0)
@@ -39,6 +52,9 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
             self.assertEqual(restored.screenshot_delay, 0.8)
             self.assertEqual(restored.randomize_retries, 5)
             self.assertEqual(restored.sample_retries, 3)
+            self.assertTrue(restored.auto_switch_race)
+            self.assertEqual(restored.race_group_size, 30000)
+            self.assertEqual(restored.race_count, 17)
             self.assertEqual(restored.default_count, 2500)
             self.assertIsNone(restored.settings_load_error)
             self.assertFalse(
@@ -56,6 +72,7 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
             self.assertIsNone(tool.copy_dna_button_pos)
             self.assertEqual(tool.clipboard_timeout, 3.0)
             self.assertEqual(tool.default_count, 1000)
+            self.assertFalse(tool.auto_switch_race)
             self.assertIsNotNone(tool.settings_load_error)
             self.assertEqual(
                 settings_path.read_text(encoding="utf-8"), "{not valid json"
@@ -85,6 +102,28 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "randomize_retries"):
                 tool.update_settings(randomize_retries=1.5)
             self.assertEqual(tool.randomize_retries, 4)
+
+    def test_version_one_settings_migrate_with_race_switch_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings_path = Path(temporary) / SETTINGS_FILENAME
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "region": [10, 20, 30, 40],
+                        "copy_dna_button_pos": [50, 60],
+                        "random_generate_button_pos": [70, 80],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            tool = FaceToCK3Tool(temporary)
+
+            self.assertEqual(tool.region, (10, 20, 30, 40))
+            self.assertFalse(tool.auto_switch_race)
+            self.assertIsNone(tool.race_button_pos)
+            self.assertIsNone(tool.settings_load_error)
 
 
 if __name__ == "__main__":

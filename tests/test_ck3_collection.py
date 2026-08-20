@@ -82,6 +82,7 @@ class FakePyAutoGUI:
         self.position = (0, 0)
         self.random_clicks = 0
         self.screenshot_count = 0
+        self.click_positions: list[tuple[int, int]] = []
 
     def moveTo(self, x: int, y: int, *, duration: float) -> None:
         self.position = (x, y)
@@ -90,6 +91,7 @@ class FakePyAutoGUI:
         pass
 
     def mouseUp(self) -> None:
+        self.click_positions.append(self.position)
         if self.position == (10, 10):
             self.clipboard.value = self.current_dna
         elif self.position == (20, 20):
@@ -140,6 +142,76 @@ def make_collector(
 
 
 class CK3CollectionTests(unittest.TestCase):
+    def test_race_transition_uses_absolute_target_and_required_order(self) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(clipboard, [])
+        config = CollectionConfig(
+            screenshot_region=(100, 100, 32, 24),
+            copy_dna_button=(10, 10),
+            random_generate_button=(20, 20),
+            auto_switch_race=True,
+            race_group_size=3,
+            race_count=4,
+            race_button=(30, 30),
+            race_first_option=(100, 100),
+            race_second_option=(102, 112),
+            show_hair_beard_checkbox=(40, 40),
+            facial_structure_button=(50, 50),
+            ui_settle_delay=0,
+            mouse_move_duration=0,
+            click_hover_delay=0,
+            click_hold_delay=0,
+        )
+        events: list[str] = []
+        collector = VerifiedCollector(
+            config,
+            pyautogui_module=gui,
+            pyperclip_module=clipboard,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+            on_event=events.append,
+        )
+
+        self.assertFalse(collector.prepare_race_for_sample(3))
+        self.assertTrue(collector.prepare_race_for_sample(4))
+        self.assertEqual(
+            gui.click_positions,
+            [(30, 30), (100, 112), (40, 40), (50, 50)],
+        )
+        self.assertIn("点击种族按钮", events)
+        self.assertIn("取消显示头发与胡须", events)
+        self.assertIn("打开面部结构", events)
+
+    def test_race_transition_stops_beyond_configured_list(self) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(clipboard, [])
+        config = CollectionConfig(
+            screenshot_region=(100, 100, 32, 24),
+            copy_dna_button=(10, 10),
+            random_generate_button=(20, 20),
+            auto_switch_race=True,
+            race_group_size=2,
+            race_count=2,
+            race_button=(30, 30),
+            race_first_option=(100, 100),
+            race_second_option=(100, 110),
+            show_hair_beard_checkbox=(40, 40),
+            facial_structure_button=(50, 50),
+        )
+        collector = VerifiedCollector(
+            config,
+            pyautogui_module=gui,
+            pyperclip_module=clipboard,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "只配置了 2 个种族"):
+            collector.prepare_race_for_sample(5)
+        self.assertEqual(gui.click_positions, [])
+
     def test_duplicate_previous_dna_is_retried_before_capture(self) -> None:
         clipboard = FakeClipboard()
         clock = FakeClock()
