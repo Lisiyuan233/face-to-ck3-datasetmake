@@ -253,33 +253,46 @@ def run_experiment(
                 f"{variant.variant_id} 连续失败 {retries + 1} 次，已停止：{last_error}"
             ) from last_error
 
-        append_jsonl(
-            manifest_path,
-            {
-                "protocol_plan_sha256": protocol.get("plan_sha256"),
-                "global_index": variant.global_index,
-                "variant_id": variant.variant_id,
-                "base_id": variant.base_id,
-                "race_group": variant.race_group,
-                "sample_id": variant.metadata.get("sample_id"),
-                "kind": variant.kind,
-                "field": variant.field,
-                "field_type": variant.metadata.get("field_type"),
-                "class_or_sign": variant.metadata.get("class_or_sign"),
-                "allele": variant.metadata.get("allele"),
-                "strength": variant.metadata.get("strength"),
-                "baseline_repeat": variant.metadata.get("baseline_repeat"),
-                "status": "completed",
-                "started_at": started_at,
-                "completed_at": utc_now(),
-                "dna_path": variant.dna_path.relative_to(experiment_dir).as_posix(),
-                "dna_sha256": variant.dna_sha256,
-                "render_path": variant.render_path.relative_to(experiment_dir).as_posix(),
-                "render_sha256": render_sha256,
-                "round_trip_scope": "schema_fields_and_colors",
-                "verification_field_count": len(verification_fields),
-            },
-        )
+        manifest_row = {
+            "protocol_plan_sha256": protocol.get("plan_sha256"),
+            "global_index": variant.global_index,
+            "variant_id": variant.variant_id,
+            "base_id": variant.base_id,
+            "race_group": variant.race_group,
+            "sample_id": variant.metadata.get("sample_id"),
+            "kind": variant.kind,
+            "field": variant.field,
+            "field_type": variant.metadata.get("field_type"),
+            "class_or_sign": variant.metadata.get("class_or_sign"),
+            "allele": variant.metadata.get("allele"),
+            "strength": variant.metadata.get("strength"),
+            "baseline_repeat": variant.metadata.get("baseline_repeat"),
+            "status": "completed",
+            "started_at": started_at,
+            "completed_at": utc_now(),
+            "dna_path": variant.dna_path.relative_to(experiment_dir).as_posix(),
+            "dna_sha256": variant.dna_sha256,
+            "render_path": variant.render_path.relative_to(experiment_dir).as_posix(),
+            "render_sha256": render_sha256,
+            "round_trip_scope": "schema_fields_and_colors",
+            "verification_field_count": len(verification_fields),
+        }
+        for key in (
+            "source_type",
+            "base_dna_id",
+            "base_index",
+            "base_split",
+            "source_sample_id",
+            "intervention_field",
+            "intervention_index",
+            "target_family",
+            "class_id",
+            "training_eligible",
+            "loss_mask",
+        ):
+            if key in variant.metadata:
+                manifest_row[key] = variant.metadata[key]
+        append_jsonl(manifest_path, manifest_row)
         completed += 1
         if on_progress:
             on_progress(completed, total, variant, "completed")
