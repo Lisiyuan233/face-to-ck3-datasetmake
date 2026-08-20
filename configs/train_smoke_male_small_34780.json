@@ -1,0 +1,38 @@
+{
+  "seed": 20260718,
+  "data": {
+    "root": "face_to_ck3_dataset_male_small/processed_multiview",
+    "schema": "face_to_ck3_dataset_male_small/dna_schema.json",
+    "manifest": "face_to_ck3_dataset_male_small/processed_multiview/manifest.json",
+    "train_label_stats": "face_to_ck3_dataset_male_small/processed_multiview/train_label_stats.json",
+    "split_index": null,
+    "image_height": 192,
+    "image_width": 128,
+    "shuffle_buffer": 64,
+    "fraction": 1.0
+  },
+  "model": {
+    "backbone": "resnet18",
+    "pretrained": false,
+    "dual_view": false,
+    "side_view": true,
+    "dropout": 0.2
+  },
+  "train": {
+    "output_dir": "runs/smoke_test_male_small_34780",
+    "epochs": 1,
+    "freeze_backbone_epochs": 0,
+    "batch_size": 2,
+    "gradient_accumulation": 1,
+    "num_workers": 0,
+    "val_num_workers": 0,
+    "amp": "off",
+    "ema_decay": 0.0,
+    "log_every": 1,
+    "max_train_steps": 2,
+    "max_val_steps": 2
+  },
+  "loss": {
+    "consistency_weight": 0.0
+  }
+}
