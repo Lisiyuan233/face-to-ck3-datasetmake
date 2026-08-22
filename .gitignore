@@ -63,3 +63,6 @@ Thumbs.db
 .venv-linux/
 .venv-1/
 .python-build/
+
+# 临时 QA / 诊断脚本
+.docx_qa/
