@@ -29,6 +29,11 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
                 screenshot_delay=0.8,
                 randomize_retries=5,
                 sample_retries=3,
+                render_check_delay=0.6,
+                render_stability_timeout=10.0,
+                render_stability_threshold=2.5,
+                render_min_contrast=36.0,
+                render_min_quality_ratio=0.72,
                 auto_switch_race=True,
                 race_group_size=30000,
                 race_count=17,
@@ -52,6 +57,11 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
             self.assertEqual(restored.screenshot_delay, 0.8)
             self.assertEqual(restored.randomize_retries, 5)
             self.assertEqual(restored.sample_retries, 3)
+            self.assertEqual(restored.render_check_delay, 0.6)
+            self.assertEqual(restored.render_stability_timeout, 10.0)
+            self.assertEqual(restored.render_stability_threshold, 2.5)
+            self.assertEqual(restored.render_min_contrast, 36.0)
+            self.assertEqual(restored.render_min_quality_ratio, 0.72)
             self.assertTrue(restored.auto_switch_race)
             self.assertEqual(restored.race_group_size, 30000)
             self.assertEqual(restored.race_count, 17)

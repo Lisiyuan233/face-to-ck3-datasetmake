@@ -4,10 +4,14 @@ import hashlib
 import json
 import os
 import re
+import statistics
 import time
+from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+from PIL import Image
 
 from dna_normalizer import DNARecord, parse_dna
 
@@ -16,6 +20,12 @@ SAMPLE_RE = re.compile(r"^face_(\d+)\.(?:png|txt)$", re.IGNORECASE)
 
 
 class CollectionCancelled(RuntimeError):
+    pass
+
+
+class RenderStabilityError(RuntimeError):
+    """The CK3 portrait renderer did not reach a trustworthy state."""
+
     pass
 
 
@@ -38,6 +48,13 @@ class CollectionConfig:
     stability_check_delay: float = 0.50
     stability_timeout: float = 8.0
     screenshot_delay: float = 0.50
+    render_check_delay: float = 0.50
+    render_stability_timeout: float = 8.0
+    render_stability_threshold: float = 2.0
+    render_min_contrast: float = 35.0
+    render_min_quality_ratio: float = 0.70
+    render_baseline_window: int = 20
+    render_baseline_min_samples: int = 5
     post_capture_delay: float = 0.20
     inter_sample_delay: float = 0.20
     randomize_retries: int = 4
@@ -55,6 +72,7 @@ class CollectionConfig:
             ("ui_settle_delay", self.ui_settle_delay),
             ("stability_check_delay", self.stability_check_delay),
             ("screenshot_delay", self.screenshot_delay),
+            ("render_check_delay", self.render_check_delay),
             ("post_capture_delay", self.post_capture_delay),
             ("inter_sample_delay", self.inter_sample_delay),
             ("mouse_move_duration", self.mouse_move_duration),
@@ -63,8 +81,33 @@ class CollectionConfig:
         ):
             if value < 0:
                 raise ValueError(f"{name} 不能小于 0")
-        if self.clipboard_timeout <= 0 or self.stability_timeout <= 0:
-            raise ValueError("clipboard_timeout 和 stability_timeout 必须大于 0")
+        if (
+            self.clipboard_timeout <= 0
+            or self.stability_timeout <= 0
+            or self.render_stability_timeout <= 0
+            or self.render_check_delay <= 0
+        ):
+            raise ValueError(
+                "clipboard_timeout、stability_timeout 和 "
+                "render_stability_timeout、render_check_delay 必须大于 0"
+            )
+        if self.render_stability_threshold <= 0:
+            raise ValueError("render_stability_threshold 必须大于 0")
+        if self.render_min_contrast <= 0:
+            raise ValueError("render_min_contrast 必须大于 0")
+        if not 0 < self.render_min_quality_ratio <= 1:
+            raise ValueError("render_min_quality_ratio 必须在 (0, 1] 范围内")
+        if self.render_baseline_window < 1:
+            raise ValueError("render_baseline_window 必须至少为 1")
+        if not (
+            1
+            <= self.render_baseline_min_samples
+            <= self.render_baseline_window
+        ):
+            raise ValueError(
+                "render_baseline_min_samples 必须在 1 到 "
+                "render_baseline_window 之间"
+            )
         if self.randomize_retries < 1:
             raise ValueError("randomize_retries 必须至少为 1")
         if self.sample_retries < 0:
@@ -101,6 +144,8 @@ class CollectedSample:
     dna_fingerprint: str
     randomize_attempts: int
     transaction_attempts: int
+    render_difference: float
+    render_contrast: float
 
 
 @dataclass(frozen=True)
@@ -184,6 +229,11 @@ class VerifiedCollector:
         self.monotonic = monotonic
         self.cancelled = cancelled or (lambda: False)
         self.on_event = on_event or (lambda _message: None)
+        self._render_quality_baseline: deque[float] = deque(
+            maxlen=self.config.render_baseline_window
+        )
+        self._render_baseline_initialized = False
+        self._render_group: int | None = None
         if hasattr(self.pyautogui, "FAILSAFE"):
             self.pyautogui.FAILSAFE = True
         if hasattr(self.pyautogui, "PAUSE"):
@@ -324,14 +374,139 @@ class VerifiedCollector:
             f"连续 {self.config.randomize_retries} 次随机生成都未得到稳定的新 DNA"
         )
 
-    def _capture(self) -> Any:
+    def _screenshot_now(self) -> Any:
         self._park_mouse()
-        self.sleep(self.config.screenshot_delay)
         self._check_cancelled()
         try:
             return self.pyautogui.screenshot(region=self.config.screenshot_region)
         except self.pyautogui.FailSafeException as error:
             raise CollectionCancelled("截图时触发 PyAutoGUI 安全停止") from error
+
+    @staticmethod
+    def _render_metrics(image: Any) -> tuple[bytes, float]:
+        """Return a low-resolution signature and portrait/background contrast."""
+        width, height = 164, 99
+        gray = image.convert("L").resize((width, height))
+        pixels = gray.tobytes()
+
+        def region(x0: int, y0: int, x1: int, y1: int) -> list[int]:
+            return [
+                pixels[y * width + x]
+                for y in range(y0, y1)
+                for x in range(x0, x1)
+            ]
+
+        # The capture layout is fixed: two portraits occupy the lower center,
+        # while these top patches contain only the static CK3 background.
+        background = region(0, 0, 20, 13) + region(75, 0, 95, 13)
+        portrait = region(29, 18, 72, 77) + region(113, 15, 150, 74)
+        portrait.sort()
+        highlight = portrait[int(0.90 * (len(portrait) - 1))]
+        contrast = highlight - statistics.fmean(background)
+        return pixels, contrast
+
+    @staticmethod
+    def _signature_difference(previous: bytes, current: bytes) -> float:
+        if len(previous) != len(current):
+            return float("inf")
+        total = sum(abs(left - right) for left, right in zip(previous, current))
+        return total / len(current)
+
+    def _prime_render_baseline(self, base_dir: Path, index: int) -> None:
+        race_group = (index - 1) // self.config.race_group_size
+        if self._render_group != race_group:
+            self._render_group = race_group
+            self._render_quality_baseline.clear()
+            self._render_baseline_initialized = False
+        if self._render_baseline_initialized:
+            return
+
+        group_start = race_group * self.config.race_group_size + 1
+        first = max(group_start, index - self.config.render_baseline_window)
+        for previous_index in range(first, index):
+            image_path = base_dir / "face" / f"face_{previous_index:04d}.png"
+            if not image_path.is_file():
+                continue
+            try:
+                with Image.open(image_path) as previous_image:
+                    _signature, contrast = self._render_metrics(previous_image)
+                self._render_quality_baseline.append(contrast)
+            except (OSError, ValueError):
+                # Pair/state validation owns corrupt-file handling. A single
+                # unreadable history image must not disable live safeguards.
+                continue
+        self._render_baseline_initialized = True
+        if self._render_quality_baseline:
+            self.on_event(
+                "已从最近 "
+                f"{len(self._render_quality_baseline)} 张同种族截图恢复渲染基线"
+            )
+
+    def _required_render_contrast(self) -> float:
+        required = self.config.render_min_contrast
+        if (
+            len(self._render_quality_baseline)
+            >= self.config.render_baseline_min_samples
+        ):
+            rolling = statistics.median(self._render_quality_baseline)
+            required = max(required, rolling * self.config.render_min_quality_ratio)
+        return required
+
+    def wait_for_stable_render(
+        self, base_dir: str | Path, index: int
+    ) -> tuple[Any, float, float]:
+        """Wait for two stable, healthy frames or stop collection safely."""
+        self._prime_render_baseline(Path(base_dir), index)
+        self._park_mouse()
+        self.sleep(self.config.screenshot_delay)
+        deadline = self.monotonic() + self.config.render_stability_timeout
+        previous_signature: bytes | None = None
+
+        while True:
+            image = self._screenshot_now()
+            signature, contrast = self._render_metrics(image)
+            required_contrast = self._required_render_contrast()
+            difference = (
+                self._signature_difference(previous_signature, signature)
+                if previous_signature is not None
+                else float("inf")
+            )
+            stable = difference <= self.config.render_stability_threshold
+            healthy = contrast >= required_contrast
+            if stable and healthy:
+                self.on_event(
+                    "渲染稳定校验通过："
+                    f"帧差 {difference:.2f}，对比度 {contrast:.1f}"
+                )
+                return image, difference, contrast
+
+            remaining = deadline - self.monotonic()
+            if remaining <= 0:
+                difference_text = (
+                    "尚无第二帧" if previous_signature is None else f"{difference:.2f}"
+                )
+                raise RenderStabilityError(
+                    "检测到 CK3 渲染持续异常，已自动停机且未保存当前样本："
+                    f"帧差={difference_text}（要求≤"
+                    f"{self.config.render_stability_threshold:.2f}），"
+                    f"人物对比度={contrast:.1f}（要求≥{required_contrast:.1f}）。"
+                    "请重启 CK3，并检查最近已保存的截图。"
+                )
+
+            reasons = []
+            if not stable:
+                reasons.append(
+                    "画面仍在变化"
+                    if previous_signature is not None
+                    else "等待第二帧"
+                )
+            if not healthy:
+                reasons.append(
+                    f"人物对比度过低 {contrast:.1f}<{required_contrast:.1f}"
+                )
+            self.on_event("渲染校验：" + "；".join(reasons))
+            previous_signature = signature
+            self.sleep(min(self.config.render_check_delay, remaining))
 
     @staticmethod
     def _save_atomic(
@@ -371,7 +546,9 @@ class VerifiedCollector:
                 candidate_text, candidate_record, randomize_attempts = (
                     self.wait_for_new_stable_dna(previous_dna)
                 )
-                image = self._capture()
+                image, render_difference, render_contrast = (
+                    self.wait_for_stable_render(base_dir, index)
+                )
                 self.sleep(self.config.post_capture_delay)
                 verified_text, verified_record = self.copy_current_dna()
                 if verified_record != candidate_record:
@@ -383,6 +560,7 @@ class VerifiedCollector:
                 image_path, dna_path = self._save_atomic(
                     Path(base_dir), index, image, verified_text
                 )
+                self._render_quality_baseline.append(render_contrast)
                 self.sleep(self.config.inter_sample_delay)
                 return CollectedSample(
                     sample_id=f"face_{index:04d}",
@@ -392,8 +570,10 @@ class VerifiedCollector:
                     dna_fingerprint=dna_fingerprint(verified_text),
                     randomize_attempts=randomize_attempts,
                     transaction_attempts=transaction_attempt,
+                    render_difference=render_difference,
+                    render_contrast=render_contrast,
                 )
-            except CollectionCancelled:
+            except (CollectionCancelled, RenderStabilityError):
                 raise
             except Exception as error:
                 errors.append(str(error))

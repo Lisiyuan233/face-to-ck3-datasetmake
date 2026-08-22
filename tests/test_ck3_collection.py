@@ -8,6 +8,7 @@ from PIL import Image
 
 from ck3_collection import (
     CollectionConfig,
+    RenderStabilityError,
     VerifiedCollector,
     discover_collection_state,
     dna_fingerprint,
@@ -74,10 +75,13 @@ class FakePyAutoGUI:
         random_dnas: list[str],
         *,
         change_after_screenshot: str | None = None,
+        render_levels: list[int] | None = None,
     ) -> None:
         self.clipboard = clipboard
         self.random_dnas = list(random_dnas)
         self.change_after_screenshot = change_after_screenshot
+        self.render_levels = list(render_levels or [100])
+        self.last_render_level = self.render_levels[-1]
         self.current_dna = DNA_A
         self.position = (0, 0)
         self.random_clicks = 0
@@ -101,7 +105,15 @@ class FakePyAutoGUI:
 
     def screenshot(self, *, region):
         self.screenshot_count += 1
-        image = Image.new("RGB", (region[2], region[3]), (40, 80, 120))
+        image = Image.new("RGB", (region[2], region[3]), (40, 40, 40))
+        if self.render_levels:
+            self.last_render_level = self.render_levels.pop(0)
+        level = self.last_render_level
+        if level > 40:
+            image.paste(
+                (level, max(40, level - 20), max(40, level - 35)),
+                (4, 4, region[2] - 2, region[3] - 2),
+            )
         if self.change_after_screenshot is not None:
             self.current_dna = self.change_after_screenshot
         return image
@@ -124,6 +136,10 @@ def make_collector(
         stability_check_delay=0.05,
         stability_timeout=0.20,
         screenshot_delay=0,
+        render_check_delay=0.01,
+        render_stability_timeout=0.20,
+        render_stability_threshold=2.0,
+        render_min_contrast=20.0,
         post_capture_delay=0,
         inter_sample_delay=0,
         randomize_retries=3,
@@ -222,7 +238,7 @@ class CK3CollectionTests(unittest.TestCase):
             result = collector.collect_sample(temporary, 1, DNA_A)
             self.assertEqual(result.randomize_attempts, 2)
             self.assertEqual(gui.random_clicks, 2)
-            self.assertEqual(gui.screenshot_count, 1)
+            self.assertEqual(gui.screenshot_count, 2)
             self.assertEqual(
                 (Path(temporary) / "dna" / "face_0001.txt").read_text(
                     encoding="utf-8"
@@ -248,6 +264,103 @@ class CK3CollectionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "截图前后的 DNA 不一致"):
                 collector.collect_sample(temporary, 1, DNA_A)
             self.assertFalse(list(Path(temporary).rglob("face_0001.*")))
+
+    def test_render_waits_for_two_matching_healthy_frames(self) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(
+            clipboard,
+            [DNA_B],
+            render_levels=[90, 130, 130],
+        )
+        collector = make_collector(gui, clipboard, clock)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = collector.collect_sample(temporary, 1, DNA_A)
+
+        self.assertEqual(gui.screenshot_count, 3)
+        self.assertLessEqual(result.render_difference, 2.0)
+        self.assertGreaterEqual(result.render_contrast, 20.0)
+
+    def test_persistent_render_anomaly_stops_without_retry_or_write(self) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(clipboard, [DNA_B], render_levels=[40])
+        config = CollectionConfig(
+            screenshot_region=(100, 100, 32, 24),
+            copy_dna_button=(10, 10),
+            random_generate_button=(20, 20),
+            clipboard_settle_delay=0.01,
+            clipboard_timeout=1.0,
+            ui_settle_delay=0.01,
+            stability_check_delay=0.05,
+            stability_timeout=0.20,
+            screenshot_delay=0,
+            render_check_delay=0.05,
+            render_stability_timeout=0.11,
+            render_stability_threshold=2.0,
+            render_min_contrast=20.0,
+            post_capture_delay=0,
+            inter_sample_delay=0,
+            randomize_retries=1,
+            sample_retries=3,
+            mouse_move_duration=0,
+            click_hover_delay=0,
+            click_hold_delay=0,
+        )
+        collector = VerifiedCollector(
+            config,
+            pyautogui_module=gui,
+            pyperclip_module=clipboard,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(RenderStabilityError, "自动停机"):
+                collector.collect_sample(temporary, 1, DNA_A)
+            self.assertFalse(list(Path(temporary).rglob("face_0001.*")))
+
+        self.assertEqual(gui.random_clicks, 1)
+
+    def test_historical_baseline_detects_relative_quality_collapse(self) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(clipboard, [], render_levels=[80])
+        config = CollectionConfig(
+            screenshot_region=(100, 100, 32, 24),
+            copy_dna_button=(10, 10),
+            random_generate_button=(20, 20),
+            screenshot_delay=0,
+            render_check_delay=0.05,
+            render_stability_timeout=0.11,
+            render_stability_threshold=2.0,
+            render_min_contrast=10.0,
+            render_min_quality_ratio=0.90,
+            render_baseline_window=5,
+            render_baseline_min_samples=5,
+            mouse_move_duration=0,
+            click_hover_delay=0,
+            click_hold_delay=0,
+        )
+        collector = VerifiedCollector(
+            config,
+            pyautogui_module=gui,
+            pyperclip_module=clipboard,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            face_dir = Path(temporary) / "face"
+            face_dir.mkdir()
+            for index in range(1, 6):
+                image = Image.new("RGB", (32, 24), (40, 40, 40))
+                image.paste((150, 130, 115), (4, 4, 30, 22))
+                image.save(face_dir / f"face_{index:04d}.png")
+
+            with self.assertRaisesRegex(RenderStabilityError, "人物对比度"):
+                collector.wait_for_stable_render(temporary, 6)
 
     def test_collection_state_rejects_unpaired_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
