@@ -30,10 +30,11 @@ from ck3_collection import (
     VerifiedCollector,
     discover_collection_state,
 )
+from feishu_notifier import FeishuNotificationConfig, FeishuNotifier
 
 
 SETTINGS_FILENAME = "collection_settings.json"
-SETTINGS_VERSION = 2
+SETTINGS_VERSION = 3
 VALIDATION_SETTING_SPECS = (
     ("剪贴板轮询间隔（秒）", "clipboard_delay", float),
     ("剪贴板更新超时（秒）", "clipboard_timeout", float),
@@ -43,6 +44,11 @@ VALIDATION_SETTING_SPECS = (
     ("DNA 稳定后截图等待（秒）", "screenshot_delay", float),
     ("随机生成最大尝试次数", "randomize_retries", int),
     ("样本事务额外重试次数", "sample_retries", int),
+    ("渲染帧复核间隔（秒）", "render_check_delay", float),
+    ("渲染稳定等待超时（秒）", "render_stability_timeout", float),
+    ("允许的连续帧差", "render_stability_threshold", float),
+    ("人物最低对比度", "render_min_contrast", float),
+    ("相对历史对比度下限", "render_min_quality_ratio", float),
     ("每个种族的样本数", "race_group_size", int),
     ("种族总数", "race_count", int),
 )
@@ -81,6 +87,11 @@ class FaceToCK3Tool:
         self.screenshot_delay = 0.50
         self.randomize_retries = 4
         self.sample_retries = 2
+        self.render_check_delay = 0.50
+        self.render_stability_timeout = 8.0
+        self.render_stability_threshold = 2.0
+        self.render_min_contrast = 35.0
+        self.render_min_quality_ratio = 0.70
         # Kept disabled until the race-layout calibration is completed.  The
         # calibration action enables it atomically with all required positions.
         self.auto_switch_race = False
@@ -145,6 +156,11 @@ class FaceToCK3Tool:
             "screenshot_delay": self.screenshot_delay,
             "randomize_retries": self.randomize_retries,
             "sample_retries": self.sample_retries,
+            "render_check_delay": self.render_check_delay,
+            "render_stability_timeout": self.render_stability_timeout,
+            "render_stability_threshold": self.render_stability_threshold,
+            "render_min_contrast": self.render_min_contrast,
+            "render_min_quality_ratio": self.render_min_quality_ratio,
             "auto_switch_race": self.auto_switch_race,
             "race_group_size": self.race_group_size,
             "race_count": self.race_count,
@@ -156,7 +172,7 @@ class FaceToCK3Tool:
             raise ValueError("设置文件内容必须是 JSON 对象")
         if (
             type(payload.get("version")) is not int
-            or payload["version"] not in (1, SETTINGS_VERSION)
+            or payload["version"] not in (1, 2, SETTINGS_VERSION)
         ):
             raise ValueError(f"不支持的设置版本: {payload.get('version')!r}")
 
@@ -262,6 +278,13 @@ class FaceToCK3Tool:
             screenshot_delay=normalized["screenshot_delay"],
             randomize_retries=normalized["randomize_retries"],
             sample_retries=normalized["sample_retries"],
+            render_check_delay=normalized["render_check_delay"],
+            render_stability_timeout=normalized["render_stability_timeout"],
+            render_stability_threshold=normalized[
+                "render_stability_threshold"
+            ],
+            render_min_contrast=normalized["render_min_contrast"],
+            render_min_quality_ratio=normalized["render_min_quality_ratio"],
             auto_switch_race=normalized["auto_switch_race"],
             race_group_size=normalized["race_group_size"],
             race_count=normalized["race_count"],
@@ -475,6 +498,11 @@ class FaceToCK3Tool:
             screenshot_delay=self.screenshot_delay,
             randomize_retries=self.randomize_retries,
             sample_retries=self.sample_retries,
+            render_check_delay=self.render_check_delay,
+            render_stability_timeout=self.render_stability_timeout,
+            render_stability_threshold=self.render_stability_threshold,
+            render_min_contrast=self.render_min_contrast,
+            render_min_quality_ratio=self.render_min_quality_ratio,
             auto_switch_race=self.auto_switch_race,
             race_group_size=self.race_group_size,
             race_count=self.race_count,
@@ -489,7 +517,7 @@ class FaceToCK3Tool:
         """Configure synchronization checks rather than blind fixed delays."""
         settings_window = tk.Toplevel()
         settings_window.title("采集校验设置")
-        settings_window.geometry("500x520")
+        settings_window.geometry("520x690")
         settings_window.resizable(False, False)
 
         variables = {}
@@ -548,6 +576,13 @@ class FaceToCK3Tool:
         except Exception as error:
             messagebox.showerror("无法开始", str(error))
             return
+        notification_config_error = None
+        try:
+            feishu_config = FeishuNotificationConfig.from_env()
+        except ValueError as error:
+            feishu_config = None
+            notification_config_error = str(error)
+        notifier = FeishuNotifier(feishu_config) if feishu_config else None
 
         progress_window = tk.Toplevel()
         progress_window.title("受校验采集进度")
@@ -561,11 +596,17 @@ class FaceToCK3Tool:
         progress_text_var.set(
             f"准备从 face_{state.next_index:04d} 开始；"
             f"每种族 {config.race_group_size} 个样本；"
-            f"自动切换{'已启用' if config.auto_switch_race else '未启用'}"
+            f"飞书通知{'已启用' if notifier else '未配置'}"
         )
         progress_label = tk.Label(progress_window, textvariable=progress_text_var)
         progress_label.pack(pady=5)
-        detail_var = tk.StringVar(value="等待工作线程启动")
+        detail_var = tk.StringVar(
+            value=(
+                f"飞书通知未启用：{notification_config_error}"
+                if notification_config_error
+                else "等待工作线程启动"
+            )
+        )
         tk.Label(
             progress_window,
             textvariable=detail_var,
@@ -586,6 +627,8 @@ class FaceToCK3Tool:
                 "requested": count,
                 "last_sample_id": result.sample_id,
                 "last_dna_fingerprint": result.dna_fingerprint,
+                "last_render_difference": round(result.render_difference, 4),
+                "last_render_contrast": round(result.render_contrast, 4),
                 "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
             with open(temporary, "w", encoding="utf-8") as stream:
@@ -594,6 +637,27 @@ class FaceToCK3Tool:
             os.replace(temporary, path)
 
         def automation_thread():
+            started_at = time.monotonic()
+            last_notification_at = started_at
+            last_notified_completed = 0
+            completed_count = 0
+
+            def elapsed_text(seconds):
+                total = max(0, int(seconds))
+                hours, remainder = divmod(total, 3600)
+                minutes, secs = divmod(remainder, 60)
+                return f"{hours:d}小时{minutes:02d}分{secs:02d}秒"
+
+            def send_notification(message):
+                if notifier is None:
+                    return False
+                try:
+                    notifier.send_text(message)
+                    return True
+                except Exception as error:
+                    events.put(("detail", f"飞书通知发送失败：{error}"))
+                    return False
+
             try:
                 collector = VerifiedCollector(
                     config,
@@ -602,22 +666,92 @@ class FaceToCK3Tool:
                     cancelled=stop_flag.is_set,
                     on_event=lambda message: events.put(("detail", message)),
                 )
+                send_notification(
+                    "[CK3 采集启动]\n"
+                    f"数据集：{os.path.basename(self.base_dir)}\n"
+                    f"起始样本：face_{state.next_index:04d}\n"
+                    f"计划采集：{count} 个\n"
+                    f"每种族：{config.race_group_size} 个"
+                )
                 previous_dna = state.previous_dna
                 for completed in range(count):
                     sample_index = state.next_index + completed
-                    collector.prepare_race_for_sample(sample_index)
+                    switched_race = collector.prepare_race_for_sample(sample_index)
+                    if switched_race:
+                        race_number = (
+                            (sample_index - 1) // config.race_group_size + 1
+                        )
+                        send_notification(
+                            "[CK3 种族切换]\n"
+                            f"即将采集：face_{sample_index:04d}\n"
+                            f"当前种族序号：{race_number}/{config.race_count}"
+                        )
                     result = collector.collect_sample(
                         self.base_dir,
                         sample_index,
                         previous_dna,
                     )
                     previous_dna = result.dna_text
-                    write_progress(completed + 1, result)
-                    events.put(("progress", completed + 1, result))
+                    completed_count = completed + 1
+                    write_progress(completed_count, result)
+                    events.put(("progress", completed_count, result))
+                    finished = completed + 1
+                    now = time.monotonic()
+                    notify_by_count = (
+                        finished - last_notified_completed
+                        >= feishu_config.progress_every
+                        if feishu_config
+                        else False
+                    )
+                    notify_by_time = (
+                        now - last_notification_at
+                        >= feishu_config.progress_interval_seconds
+                        if feishu_config
+                        else False
+                    )
+                    if notifier and (notify_by_count or notify_by_time):
+                        elapsed = now - started_at
+                        speed = finished / elapsed * 60 if elapsed > 0 else 0.0
+                        remaining = count - finished
+                        eta = remaining / speed * 60 if speed > 0 else 0.0
+                        last_notification_at = now
+                        last_notified_completed = finished
+                        send_notification(
+                            "[CK3 采集进度]\n"
+                            f"进度：{finished}/{count} "
+                            f"({finished / count:.1%})\n"
+                            f"最近样本：{result.sample_id}\n"
+                            f"已运行：{elapsed_text(elapsed)}\n"
+                            f"速度：{speed:.1f} 个/分钟\n"
+                            f"预计剩余：{elapsed_text(eta)}\n"
+                            f"渲染帧差：{result.render_difference:.2f}\n"
+                            f"人物对比度：{result.render_contrast:.1f}"
+                        )
+                elapsed = time.monotonic() - started_at
+                send_notification(
+                    "[CK3 采集完成]\n"
+                    f"本次完成：{count}/{count}\n"
+                    f"最后样本：face_{state.next_index + count - 1:04d}\n"
+                    f"总耗时：{elapsed_text(elapsed)}"
+                )
                 events.put(("done", count))
             except CollectionCancelled:
+                elapsed = time.monotonic() - started_at
+                send_notification(
+                    "[CK3 采集已取消]\n"
+                    f"已运行：{elapsed_text(elapsed)}\n"
+                    "未完成事务不会写入数据集"
+                )
                 events.put(("cancelled",))
             except Exception as error:
+                elapsed = time.monotonic() - started_at
+                send_notification(
+                    "[CK3 采集异常停止]\n"
+                    f"运行时间：{elapsed_text(elapsed)}\n"
+                    f"已完成：{completed_count}/{count}\n"
+                    f"下一样本：face_{state.next_index + completed_count:04d}\n"
+                    f"异常：{str(error)[:1200]}"
+                )
                 events.put(("error", str(error)))
 
         def cancel_operation():
@@ -638,7 +772,9 @@ class FaceToCK3Tool:
                             f"进度: {completed}/{count}；已保存 {result.sample_id}"
                         )
                         detail_var.set(
-                            "DNA 截图前后校验通过；"
+                            "DNA 与渲染稳定校验通过；"
+                            f"帧差 {result.render_difference:.2f}，"
+                            f"人物对比度 {result.render_contrast:.1f}；"
                             f"随机尝试 {result.randomize_attempts} 次，"
                             f"事务尝试 {result.transaction_attempts} 次"
                         )
@@ -690,9 +826,11 @@ class FaceToCK3Tool:
         info_text = """每个样本执行受校验事务：
 1. 随机生成并等待新 DNA
 2. 连续两次复制结果一致后截图
-3. 截图后再次验证 DNA 未变化
-4. 图片和 DNA 原子配对写入
-5. 每到种族块边界：选择下一种族、隐藏头发胡须、打开面部结构
+3. 连续画面稳定且人物对比度正常后截图
+4. 截图后再次验证 DNA 未变化
+5. 图片和 DNA 原子配对写入
+6. 渲染持续异常时自动停机，不写入当前样本
+7. 每到种族块边界：选择下一种族、隐藏头发胡须、打开面部结构
 失败会重试，不占用 sample ID"""
         
         info_label = tk.Label(root, text=info_text, justify=tk.LEFT)
