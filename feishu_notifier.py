@@ -13,6 +13,15 @@ from typing import Any, Callable
 
 FEISHU_API_ROOT = "https://open.feishu.cn/open-apis"
 VALID_RECEIVE_ID_TYPES = {"chat_id", "open_id", "user_id", "union_id", "email"}
+FEISHU_ENV_NAMES = (
+    "FEISHU_APP_ID",
+    "FEISHU_APP_SECRET",
+    "FEISHU_RECEIVE_ID",
+    "FEISHU_RECEIVE_ID_TYPE",
+    "FEISHU_PROGRESS_EVERY",
+    "FEISHU_PROGRESS_INTERVAL_SECONDS",
+    "FEISHU_TIMEOUT_SECONDS",
+)
 
 
 class FeishuNotificationError(RuntimeError):
@@ -48,32 +57,68 @@ class FeishuNotificationConfig:
 
     @classmethod
     def from_env(
-        cls, *, require_receiver: bool = True
+        cls,
+        *,
+        require_receiver: bool = True,
+        fallback_to_windows_user_environment: bool = True,
     ) -> FeishuNotificationConfig | None:
-        app_id = os.environ.get("FEISHU_APP_ID", "").strip()
-        app_secret = os.environ.get("FEISHU_APP_SECRET", "").strip()
-        receive_id = os.environ.get("FEISHU_RECEIVE_ID", "").strip()
+        values = {name: os.environ.get(name, "") for name in FEISHU_ENV_NAMES}
+        if fallback_to_windows_user_environment:
+            for name, value in _windows_user_environment().items():
+                if not values.get(name):
+                    values[name] = value
+        app_id = values["FEISHU_APP_ID"].strip()
+        app_secret = values["FEISHU_APP_SECRET"].strip()
+        receive_id = values["FEISHU_RECEIVE_ID"].strip()
         if not app_id and not app_secret and not receive_id:
             return None
         config = cls(
             app_id=app_id,
             app_secret=app_secret,
             receive_id=receive_id,
-            receive_id_type=os.environ.get(
-                "FEISHU_RECEIVE_ID_TYPE", "chat_id"
+            receive_id_type=(
+                values.get("FEISHU_RECEIVE_ID_TYPE") or "chat_id"
             ).strip(),
-            progress_every=_positive_int_env("FEISHU_PROGRESS_EVERY", 500),
-            progress_interval_seconds=_positive_float_env(
-                "FEISHU_PROGRESS_INTERVAL_SECONDS", 1800.0
+            progress_every=_positive_int_env(
+                "FEISHU_PROGRESS_EVERY", 500, values
             ),
-            timeout_seconds=_positive_float_env("FEISHU_TIMEOUT_SECONDS", 10.0),
+            progress_interval_seconds=_positive_float_env(
+                "FEISHU_PROGRESS_INTERVAL_SECONDS", 1800.0, values
+            ),
+            timeout_seconds=_positive_float_env(
+                "FEISHU_TIMEOUT_SECONDS", 10.0, values
+            ),
         )
         config.validate(require_receiver=require_receiver)
         return config
 
 
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name)
+def _windows_user_environment() -> dict[str, str]:
+    """Read current-user values even when a launcher has stale environment."""
+    if os.name != "nt":
+        return {}
+    try:
+        import winreg
+
+        result = {}
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            for name in FEISHU_ENV_NAMES:
+                try:
+                    value, _value_type = winreg.QueryValueEx(key, name)
+                except FileNotFoundError:
+                    continue
+                if isinstance(value, str):
+                    result[name] = value
+        return result
+    except (ImportError, OSError):
+        return {}
+
+
+def _positive_int_env(
+    name: str, default: int, environment: dict[str, str] | None = None
+) -> int:
+    source = os.environ if environment is None else environment
+    raw = source.get(name)
     if raw is None or not raw.strip():
         return default
     try:
@@ -85,8 +130,11 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
-def _positive_float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name)
+def _positive_float_env(
+    name: str, default: float, environment: dict[str, str] | None = None
+) -> float:
+    source = os.environ if environment is None else environment
+    raw = source.get(name)
     if raw is None or not raw.strip():
         return default
     try:

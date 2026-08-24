@@ -51,6 +51,7 @@ class CollectionConfig:
     render_check_delay: float = 0.50
     render_stability_timeout: float = 8.0
     render_stability_threshold: float = 2.0
+    render_min_change: float = 2.5
     render_min_contrast: float = 35.0
     render_min_quality_ratio: float = 0.70
     render_baseline_window: int = 20
@@ -93,6 +94,8 @@ class CollectionConfig:
             )
         if self.render_stability_threshold <= 0:
             raise ValueError("render_stability_threshold 必须大于 0")
+        if self.render_min_change <= 0:
+            raise ValueError("render_min_change 必须大于 0")
         if self.render_min_contrast <= 0:
             raise ValueError("render_min_contrast 必须大于 0")
         if not 0 < self.render_min_quality_ratio <= 1:
@@ -145,6 +148,7 @@ class CollectedSample:
     randomize_attempts: int
     transaction_attempts: int
     render_difference: float
+    render_change: float
     render_contrast: float
 
 
@@ -448,19 +452,88 @@ class VerifiedCollector:
             len(self._render_quality_baseline)
             >= self.config.render_baseline_min_samples
         ):
-            rolling = statistics.median(self._render_quality_baseline)
-            required = max(required, rolling * self.config.render_min_quality_ratio)
+            # Skin tone and lighting legitimately vary much more than renderer
+            # quality.  Using the median made a healthy dark portrait look like
+            # a quality collapse after a run of brighter portraits.  A low
+            # historical percentile still catches a real collapse while
+            # respecting the healthy range already observed for this race.
+            ordered = sorted(self._render_quality_baseline)
+            low_index = int(0.10 * (len(ordered) - 1))
+            rolling_low = ordered[low_index]
+            required = max(
+                required,
+                rolling_low * self.config.render_min_quality_ratio,
+            )
         return required
+
+    def _previous_render_signature(
+        self, base_dir: Path, index: int
+    ) -> bytes | None:
+        if index <= 1:
+            return None
+        image_path = base_dir / "face" / f"face_{index - 1:04d}.png"
+        if not image_path.is_file():
+            return None
+        try:
+            with Image.open(image_path) as previous_image:
+                signature, _contrast = self._render_metrics(previous_image)
+            return signature
+        except (OSError, ValueError):
+            return None
+
+    def _save_render_diagnostics(
+        self,
+        base_dir: Path,
+        index: int,
+        image: Any,
+        *,
+        difference: float,
+        change: float,
+        contrast: float,
+        required_contrast: float,
+        reason: str,
+    ) -> tuple[Path, Path]:
+        diagnostics_dir = base_dir / "collection_diagnostics"
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        sample_id = f"face_{index:04d}"
+        image_path = diagnostics_dir / f"render_failure_{sample_id}.png"
+        metrics_path = diagnostics_dir / f"render_failure_{sample_id}.json"
+        image.save(image_path, format="PNG")
+        payload = {
+            "sample_id": sample_id,
+            "reason": reason,
+            "render_difference": None if difference == float("inf") else difference,
+            "render_stability_threshold": self.config.render_stability_threshold,
+            "change_from_previous_sample": None if change == float("inf") else change,
+            "render_min_change": self.config.render_min_change,
+            "render_contrast": contrast,
+            "required_render_contrast": required_contrast,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "image_path": str(image_path),
+        }
+        temporary = metrics_path.with_name(metrics_path.name + ".partial")
+        try:
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(temporary, metrics_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return image_path, metrics_path
 
     def wait_for_stable_render(
         self, base_dir: str | Path, index: int
-    ) -> tuple[Any, float, float]:
-        """Wait for two stable, healthy frames or stop collection safely."""
-        self._prime_render_baseline(Path(base_dir), index)
+    ) -> tuple[Any, float, float, float]:
+        """Wait for a changed, healthy render and prefer its calmest frame."""
+        base_path = Path(base_dir)
+        self._prime_render_baseline(base_path, index)
+        previous_sample_signature = self._previous_render_signature(base_path, index)
         self._park_mouse()
         self.sleep(self.config.screenshot_delay)
         deadline = self.monotonic() + self.config.render_stability_timeout
         previous_signature: bytes | None = None
+        best_candidate: tuple[Any, float, float, float] | None = None
 
         while True:
             image = self._screenshot_now()
@@ -471,26 +544,85 @@ class VerifiedCollector:
                 if previous_signature is not None
                 else float("inf")
             )
+            change = (
+                self._signature_difference(previous_sample_signature, signature)
+                if previous_sample_signature is not None
+                else 0.0
+            )
             stable = difference <= self.config.render_stability_threshold
             healthy = contrast >= required_contrast
-            if stable and healthy:
+            changed = (
+                previous_sample_signature is None
+                or change >= self.config.render_min_change
+            )
+            trustworthy = healthy and changed
+            if previous_signature is not None and trustworthy:
+                if best_candidate is None or difference < best_candidate[1]:
+                    best_candidate = (image, difference, change, contrast)
+            if stable and trustworthy:
                 self.on_event(
                     "渲染稳定校验通过："
-                    f"帧差 {difference:.2f}，对比度 {contrast:.1f}"
+                    f"帧差 {difference:.2f}，较上一样本变化 {change:.2f}，"
+                    f"对比度 {contrast:.1f}"
                 )
-                return image, difference, contrast
+                return image, difference, change, contrast
 
             remaining = deadline - self.monotonic()
             if remaining <= 0:
+                if best_candidate is not None:
+                    best_image, best_difference, best_change, best_contrast = (
+                        best_candidate
+                    )
+                    self.on_event(
+                        "画面健康且已切换，但人物动画使连续帧未达到严格阈值；"
+                        "使用等待期间最稳定帧："
+                        f"帧差 {best_difference:.2f}，"
+                        f"较上一样本变化 {best_change:.2f}，"
+                        f"对比度 {best_contrast:.1f}"
+                    )
+                    return (
+                        best_image,
+                        best_difference,
+                        best_change,
+                        best_contrast,
+                    )
                 difference_text = (
                     "尚无第二帧" if previous_signature is None else f"{difference:.2f}"
                 )
+                if not healthy:
+                    reason = (
+                        f"人物对比度持续过低 {contrast:.1f}<"
+                        f"{required_contrast:.1f}"
+                    )
+                elif not changed:
+                    reason = (
+                        "DNA 已变化，但人物画面仍与上一样本近似相同 "
+                        f"{change:.2f}<{self.config.render_min_change:.2f}"
+                    )
+                else:
+                    reason = "等待期间没有得到可比较的第二个健康帧"
+                _diagnostic_image, diagnostic_metrics = (
+                    self._save_render_diagnostics(
+                        base_path,
+                        index,
+                        image,
+                        difference=difference,
+                        change=change,
+                        contrast=contrast,
+                        required_contrast=required_contrast,
+                        reason=reason,
+                    )
+                )
                 raise RenderStabilityError(
                     "检测到 CK3 渲染持续异常，已自动停机且未保存当前样本："
+                    f"{reason}；"
                     f"帧差={difference_text}（要求≤"
                     f"{self.config.render_stability_threshold:.2f}），"
+                    f"较上一样本变化={change:.2f}（要求≥"
+                    f"{self.config.render_min_change:.2f}），"
                     f"人物对比度={contrast:.1f}（要求≥{required_contrast:.1f}）。"
-                    "请重启 CK3，并检查最近已保存的截图。"
+                    f"诊断文件：{diagnostic_metrics}。"
+                    "请重启 CK3，并检查诊断截图。"
                 )
 
             reasons = []
@@ -503,6 +635,11 @@ class VerifiedCollector:
             if not healthy:
                 reasons.append(
                     f"人物对比度过低 {contrast:.1f}<{required_contrast:.1f}"
+                )
+            if not changed:
+                reasons.append(
+                    "画面尚未切换 "
+                    f"{change:.1f}<{self.config.render_min_change:.1f}"
                 )
             self.on_event("渲染校验：" + "；".join(reasons))
             previous_signature = signature
@@ -546,7 +683,7 @@ class VerifiedCollector:
                 candidate_text, candidate_record, randomize_attempts = (
                     self.wait_for_new_stable_dna(previous_dna)
                 )
-                image, render_difference, render_contrast = (
+                image, render_difference, render_change, render_contrast = (
                     self.wait_for_stable_render(base_dir, index)
                 )
                 self.sleep(self.config.post_capture_delay)
@@ -571,6 +708,7 @@ class VerifiedCollector:
                     randomize_attempts=randomize_attempts,
                     transaction_attempts=transaction_attempt,
                     render_difference=render_difference,
+                    render_change=render_change,
                     render_contrast=render_contrast,
                 )
             except (CollectionCancelled, RenderStabilityError):

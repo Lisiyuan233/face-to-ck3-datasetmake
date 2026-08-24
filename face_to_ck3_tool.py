@@ -27,6 +27,7 @@ except Exception:  # PyAutoGUI can fail on headless systems without DISPLAY.
 from ck3_collection import (
     CollectionCancelled,
     CollectionConfig,
+    RenderStabilityError,
     VerifiedCollector,
     discover_collection_state,
 )
@@ -34,7 +35,9 @@ from feishu_notifier import FeishuNotificationConfig, FeishuNotifier
 
 
 SETTINGS_FILENAME = "collection_settings.json"
-SETTINGS_VERSION = 3
+SETTINGS_VERSION = 4
+EVENTS_FILENAME = "collection_events.jsonl"
+LAST_STOP_FILENAME = "collection_last_stop.json"
 VALIDATION_SETTING_SPECS = (
     ("剪贴板轮询间隔（秒）", "clipboard_delay", float),
     ("剪贴板更新超时（秒）", "clipboard_timeout", float),
@@ -47,6 +50,7 @@ VALIDATION_SETTING_SPECS = (
     ("渲染帧复核间隔（秒）", "render_check_delay", float),
     ("渲染稳定等待超时（秒）", "render_stability_timeout", float),
     ("允许的连续帧差", "render_stability_threshold", float),
+    ("与上一样本最小帧差", "render_min_change", float),
     ("人物最低对比度", "render_min_contrast", float),
     ("相对历史对比度下限", "render_min_quality_ratio", float),
     ("每个种族的样本数", "race_group_size", int),
@@ -90,6 +94,7 @@ class FaceToCK3Tool:
         self.render_check_delay = 0.50
         self.render_stability_timeout = 8.0
         self.render_stability_threshold = 2.0
+        self.render_min_change = 2.5
         self.render_min_contrast = 35.0
         self.render_min_quality_ratio = 0.70
         # Kept disabled until the race-layout calibration is completed.  The
@@ -159,6 +164,7 @@ class FaceToCK3Tool:
             "render_check_delay": self.render_check_delay,
             "render_stability_timeout": self.render_stability_timeout,
             "render_stability_threshold": self.render_stability_threshold,
+            "render_min_change": self.render_min_change,
             "render_min_contrast": self.render_min_contrast,
             "render_min_quality_ratio": self.render_min_quality_ratio,
             "auto_switch_race": self.auto_switch_race,
@@ -172,7 +178,7 @@ class FaceToCK3Tool:
             raise ValueError("设置文件内容必须是 JSON 对象")
         if (
             type(payload.get("version")) is not int
-            or payload["version"] not in (1, 2, SETTINGS_VERSION)
+            or payload["version"] not in (1, 2, 3, SETTINGS_VERSION)
         ):
             raise ValueError(f"不支持的设置版本: {payload.get('version')!r}")
 
@@ -283,6 +289,7 @@ class FaceToCK3Tool:
             render_stability_threshold=normalized[
                 "render_stability_threshold"
             ],
+            render_min_change=normalized["render_min_change"],
             render_min_contrast=normalized["render_min_contrast"],
             render_min_quality_ratio=normalized["render_min_quality_ratio"],
             auto_switch_race=normalized["auto_switch_race"],
@@ -501,6 +508,7 @@ class FaceToCK3Tool:
             render_check_delay=self.render_check_delay,
             render_stability_timeout=self.render_stability_timeout,
             render_stability_threshold=self.render_stability_threshold,
+            render_min_change=self.render_min_change,
             render_min_contrast=self.render_min_contrast,
             render_min_quality_ratio=self.render_min_quality_ratio,
             auto_switch_race=self.auto_switch_race,
@@ -517,7 +525,7 @@ class FaceToCK3Tool:
         """Configure synchronization checks rather than blind fixed delays."""
         settings_window = tk.Toplevel()
         settings_window.title("采集校验设置")
-        settings_window.geometry("520x690")
+        settings_window.geometry("520x730")
         settings_window.resizable(False, False)
 
         variables = {}
@@ -584,6 +592,31 @@ class FaceToCK3Tool:
             notification_config_error = str(error)
         notifier = FeishuNotifier(feishu_config) if feishu_config else None
 
+        def append_collection_event(event_type, message="", **extra):
+            payload = {
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "event": event_type,
+                "message": message,
+                **extra,
+            }
+            path = os.path.join(self.base_dir, EVENTS_FILENAME)
+            try:
+                with open(path, "a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            except OSError:
+                # Event logging must never turn a recoverable notification
+                # problem into a failed sample transaction.
+                pass
+
+        append_collection_event(
+            "run_opened",
+            "采集窗口已创建",
+            next_sample=f"face_{state.next_index:04d}",
+            requested=count,
+            feishu_enabled=notifier is not None,
+            feishu_config_error=notification_config_error,
+        )
+
         progress_window = tk.Toplevel()
         progress_window.title("受校验采集进度")
         progress_window.geometry("560x190")
@@ -602,9 +635,10 @@ class FaceToCK3Tool:
         progress_label.pack(pady=5)
         detail_var = tk.StringVar(
             value=(
-                f"飞书通知未启用：{notification_config_error}"
-                if notification_config_error
-                else "等待工作线程启动"
+                "等待工作线程启动"
+                if notifier
+                else "飞书通知未启用："
+                + (notification_config_error or "未读取到机器人配置")
             )
         )
         tk.Label(
@@ -628,6 +662,7 @@ class FaceToCK3Tool:
                 "last_sample_id": result.sample_id,
                 "last_dna_fingerprint": result.dna_fingerprint,
                 "last_render_difference": round(result.render_difference, 4),
+                "last_render_change": round(result.render_change, 4),
                 "last_render_contrast": round(result.render_contrast, 4),
                 "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
@@ -650,13 +685,71 @@ class FaceToCK3Tool:
 
             def send_notification(message):
                 if notifier is None:
+                    append_collection_event(
+                        "notification_skipped",
+                        "飞书通知未启用",
+                        notification=message.splitlines()[0],
+                    )
                     return False
+                last_error = None
+                for attempt in range(1, 3):
+                    try:
+                        message_id = notifier.send_text(message)
+                        append_collection_event(
+                            "notification_sent",
+                            message.splitlines()[0],
+                            message_id=message_id,
+                            attempt=attempt,
+                        )
+                        return True
+                    except Exception as error:
+                        last_error = error
+                        append_collection_event(
+                            "notification_failed",
+                            str(error),
+                            notification=message.splitlines()[0],
+                            attempt=attempt,
+                        )
+                        if attempt < 2:
+                            time.sleep(1.0)
+                events.put(("detail", f"飞书通知发送失败：{last_error}"))
+                return False
+
+            def write_last_stop(error, elapsed, notification_sent):
+                path = os.path.join(self.base_dir, LAST_STOP_FILENAME)
+                temporary = path + ".partial"
+                payload = {
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "error_type": type(error).__name__,
+                    "error": str(error),
+                    "render_stability_error": isinstance(
+                        error, RenderStabilityError
+                    ),
+                    "elapsed_seconds": round(elapsed, 3),
+                    "completed": completed_count,
+                    "requested": count,
+                    "next_sample_id": (
+                        f"face_{state.next_index + completed_count:04d}"
+                    ),
+                    "feishu_enabled": notifier is not None,
+                    "feishu_notification_sent": notification_sent,
+                }
                 try:
-                    notifier.send_text(message)
-                    return True
-                except Exception as error:
-                    events.put(("detail", f"飞书通知发送失败：{error}"))
-                    return False
+                    with open(temporary, "w", encoding="utf-8") as stream:
+                        json.dump(payload, stream, ensure_ascii=False, indent=2)
+                        stream.write("\n")
+                    os.replace(temporary, path)
+                except OSError as log_error:
+                    append_collection_event(
+                        "last_stop_write_failed",
+                        str(log_error),
+                    )
+                finally:
+                    try:
+                        if os.path.exists(temporary):
+                            os.remove(temporary)
+                    except OSError:
+                        pass
 
             try:
                 collector = VerifiedCollector(
@@ -725,34 +818,63 @@ class FaceToCK3Tool:
                             f"速度：{speed:.1f} 个/分钟\n"
                             f"预计剩余：{elapsed_text(eta)}\n"
                             f"渲染帧差：{result.render_difference:.2f}\n"
+                            f"较上一样本变化：{result.render_change:.2f}\n"
                             f"人物对比度：{result.render_contrast:.1f}"
                         )
                 elapsed = time.monotonic() - started_at
-                send_notification(
+                notification_sent = send_notification(
                     "[CK3 采集完成]\n"
                     f"本次完成：{count}/{count}\n"
                     f"最后样本：face_{state.next_index + count - 1:04d}\n"
                     f"总耗时：{elapsed_text(elapsed)}"
                 )
+                append_collection_event(
+                    "run_completed",
+                    "采集完成",
+                    completed=count,
+                    notification_sent=notification_sent,
+                )
                 events.put(("done", count))
             except CollectionCancelled:
                 elapsed = time.monotonic() - started_at
-                send_notification(
+                notification_sent = send_notification(
                     "[CK3 采集已取消]\n"
                     f"已运行：{elapsed_text(elapsed)}\n"
                     "未完成事务不会写入数据集"
                 )
+                append_collection_event(
+                    "run_cancelled",
+                    "采集已取消",
+                    completed=completed_count,
+                    notification_sent=notification_sent,
+                )
                 events.put(("cancelled",))
             except Exception as error:
                 elapsed = time.monotonic() - started_at
-                send_notification(
+                notification_sent = send_notification(
                     "[CK3 采集异常停止]\n"
                     f"运行时间：{elapsed_text(elapsed)}\n"
                     f"已完成：{completed_count}/{count}\n"
                     f"下一样本：face_{state.next_index + completed_count:04d}\n"
                     f"异常：{str(error)[:1200]}"
                 )
-                events.put(("error", str(error)))
+                write_last_stop(error, elapsed, notification_sent)
+                append_collection_event(
+                    "run_failed",
+                    str(error),
+                    completed=completed_count,
+                    next_sample=(
+                        f"face_{state.next_index + completed_count:04d}"
+                    ),
+                    notification_sent=notification_sent,
+                )
+                display_error = str(error)
+                if not notification_sent:
+                    display_error += (
+                        "\n\n飞书异常通知未送达，详情已写入 "
+                        f"{EVENTS_FILENAME}。"
+                    )
+                events.put(("error", display_error))
 
         def cancel_operation():
             stop_flag.set()
@@ -774,6 +896,7 @@ class FaceToCK3Tool:
                         detail_var.set(
                             "DNA 与渲染稳定校验通过；"
                             f"帧差 {result.render_difference:.2f}，"
+                            f"较上一样本变化 {result.render_change:.2f}，"
                             f"人物对比度 {result.render_contrast:.1f}；"
                             f"随机尝试 {result.randomize_attempts} 次，"
                             f"事务尝试 {result.transaction_attempts} 次"

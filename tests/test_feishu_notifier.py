@@ -119,7 +119,26 @@ class FeishuNotifierTests(unittest.TestCase):
             clear=True,
         ):
             with self.assertRaisesRegex(ValueError, "App Secret"):
-                FeishuNotificationConfig.from_env()
+                FeishuNotificationConfig.from_env(
+                    fallback_to_windows_user_environment=False
+                )
+
+    def test_reads_windows_user_environment_when_launcher_is_stale(self) -> None:
+        registry_values = {
+            "FEISHU_APP_ID": "cli_registry",
+            "FEISHU_APP_SECRET": "registry-secret",
+            "FEISHU_RECEIVE_ID": "oc_registry",
+            "FEISHU_RECEIVE_ID_TYPE": "chat_id",
+        }
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch(
+            "feishu_notifier._windows_user_environment",
+            return_value=registry_values,
+        ):
+            config = FeishuNotificationConfig.from_env()
+
+        self.assertIsNotNone(config)
+        self.assertEqual(config.app_id, "cli_registry")
+        self.assertEqual(config.receive_id, "oc_registry")
 
 
 if __name__ == "__main__":

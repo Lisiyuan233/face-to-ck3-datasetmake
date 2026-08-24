@@ -32,6 +32,7 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
                 render_check_delay=0.6,
                 render_stability_timeout=10.0,
                 render_stability_threshold=2.5,
+                render_min_change=3.0,
                 render_min_contrast=36.0,
                 render_min_quality_ratio=0.72,
                 auto_switch_race=True,
@@ -60,6 +61,7 @@ class FaceToCK3ToolSettingsTests(unittest.TestCase):
             self.assertEqual(restored.render_check_delay, 0.6)
             self.assertEqual(restored.render_stability_timeout, 10.0)
             self.assertEqual(restored.render_stability_threshold, 2.5)
+            self.assertEqual(restored.render_min_change, 3.0)
             self.assertEqual(restored.render_min_contrast, 36.0)
             self.assertEqual(restored.render_min_quality_ratio, 0.72)
             self.assertTrue(restored.auto_switch_race)

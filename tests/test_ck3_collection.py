@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
@@ -282,6 +283,61 @@ class CK3CollectionTests(unittest.TestCase):
         self.assertLessEqual(result.render_difference, 2.0)
         self.assertGreaterEqual(result.render_contrast, 20.0)
 
+    def test_healthy_animation_uses_calmest_frame_instead_of_stopping(self) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(
+            clipboard,
+            [DNA_B],
+            render_levels=[90, 130] * 20,
+        )
+        collector = make_collector(gui, clipboard, clock)
+        collector.config = replace(
+            collector.config,
+            render_stability_timeout=0.055,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            result = collector.collect_sample(temporary, 1, DNA_A)
+
+        self.assertGreater(
+            result.render_difference,
+            collector.config.render_stability_threshold,
+        )
+        self.assertGreaterEqual(result.render_contrast, 20.0)
+
+    def test_changed_dna_with_unchanged_render_stops_and_saves_diagnostics(
+        self,
+    ) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(clipboard, [], render_levels=[100])
+        collector = make_collector(gui, clipboard, clock)
+        collector.config = replace(
+            collector.config,
+            render_stability_timeout=0.035,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            face_dir = Path(temporary) / "face"
+            face_dir.mkdir()
+            previous = Image.new("RGB", (32, 24), (40, 40, 40))
+            previous.paste((100, 80, 65), (4, 4, 30, 22))
+            previous.save(face_dir / "face_0001.png")
+
+            with self.assertRaisesRegex(
+                RenderStabilityError, "仍与上一样本近似相同"
+            ):
+                collector.wait_for_stable_render(temporary, 2)
+
+            diagnostics = Path(temporary) / "collection_diagnostics"
+            self.assertTrue(
+                (diagnostics / "render_failure_face_0002.png").is_file()
+            )
+            self.assertTrue(
+                (diagnostics / "render_failure_face_0002.json").is_file()
+            )
+
     def test_persistent_render_anomaly_stops_without_retry_or_write(self) -> None:
         clipboard = FakeClipboard()
         clock = FakeClock()
@@ -361,6 +417,53 @@ class CK3CollectionTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RenderStabilityError, "人物对比度"):
                 collector.wait_for_stable_render(temporary, 6)
+
+    def test_historical_low_percentile_allows_healthy_dark_portrait(self) -> None:
+        clipboard = FakeClipboard()
+        clock = FakeClock()
+        gui = FakePyAutoGUI(clipboard, [], render_levels=[80])
+        config = CollectionConfig(
+            screenshot_region=(100, 100, 32, 24),
+            copy_dna_button=(10, 10),
+            random_generate_button=(20, 20),
+            screenshot_delay=0,
+            render_check_delay=0.01,
+            render_stability_timeout=0.10,
+            render_stability_threshold=2.0,
+            render_min_contrast=10.0,
+            render_min_quality_ratio=0.90,
+            render_baseline_window=5,
+            render_baseline_min_samples=5,
+            mouse_move_duration=0,
+            click_hover_delay=0,
+            click_hold_delay=0,
+        )
+        collector = VerifiedCollector(
+            config,
+            pyautogui_module=gui,
+            pyperclip_module=clipboard,
+            sleep=clock.sleep,
+            monotonic=clock.monotonic,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            face_dir = Path(temporary) / "face"
+            face_dir.mkdir()
+            for index, level in enumerate([80, 150, 150, 150, 150], start=1):
+                image = Image.new("RGB", (32, 24), (40, 40, 40))
+                image.paste(
+                    (level, max(40, level - 20), max(40, level - 35)),
+                    (4, 4, 30, 22),
+                )
+                image.save(face_dir / f"face_{index:04d}.png")
+
+            _image, difference, change, contrast = (
+                collector.wait_for_stable_render(temporary, 6)
+            )
+
+        self.assertLessEqual(difference, 2.0)
+        self.assertGreaterEqual(change, config.render_min_change)
+        self.assertGreaterEqual(contrast, config.render_min_contrast)
 
     def test_collection_state_rejects_unpaired_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
