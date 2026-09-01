@@ -19,7 +19,7 @@
     "epochs": 12,
     "freeze_backbone_epochs": 0,
     "batch_size": 16,
-    "gradient_accumulation": 2,
+    "gradient_accumulation": 3,
     "num_workers": 8,
     "val_num_workers": 4,
     "backbone_lr": 0.0001,
