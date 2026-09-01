@@ -322,6 +322,7 @@ class TarShardDataset(IterableDataset):
         sample_fraction: float = 1.0,
         sample_ids: frozenset[str] | None = None,
         require_side_view: bool = False,
+        side_dropout: float = 0.0,
         rank: int = 0,
         world_size: int = 1,
     ) -> None:
@@ -340,6 +341,7 @@ class TarShardDataset(IterableDataset):
             raise ValueError("sample_fraction must be in (0, 1]")
         self.sample_ids = sample_ids
         self.require_side_view = bool(require_side_view)
+        self.side_dropout = min(max(float(side_dropout), 0.0), 1.0)
         self.rank = int(rank)
         self.world_size = int(world_size)
         self.epoch = 0
@@ -459,7 +461,15 @@ class TarShardDataset(IterableDataset):
             if geometry_map is not None:
                 sample["geometry_map"] = geometry_map
             if raw["side_image_bytes"] is not None:
-                with Image.open(io.BytesIO(raw["side_image_bytes"])) as decoded:
+                side_bytes = raw["side_image_bytes"]
+                if (
+                    self.side_dropout > 0.0
+                    and self.training
+                    and random.random() < self.side_dropout
+                ):
+                    # 模态丢弃：以正脸图替代侧脸，训练无侧脸输入时的鲁棒性
+                    side_bytes = raw["front_image_bytes"]
+                with Image.open(io.BytesIO(side_bytes)) as decoded:
                     side_image = decoded.convert("RGB")
                 if self.transform.geometry_map_enabled:
                     side, _, side_geometry_map = (

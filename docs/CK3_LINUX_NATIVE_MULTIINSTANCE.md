@@ -55,3 +55,24 @@
 ## 七、建议
 
 VM pilot 继续走完（验证端到端速率与采集质量基线）；**同时在 GPU 0 上做 Linux 原生单实例 PoC**——同机采 20 个样本与 Windows 基线对比画质和速率。渲染无差异 → 规模化全走 Linux 原生（GPU 1 也用上，VM 退役或留作备份）；有差异 → 回退 VM 路线扩到 3 实例。
+
+## 八、PoC 执行记录（2026-09-01 20:40 北京时间，全部通过）
+
+| 环节 | 结果 |
+|---|---|
+| 依赖安装 | wine64 + xorg + openbox + x11vnc + xdotool + xclip + scrot + python3-tk；pip 装 pyperclip/pyautogui（pyscreeze 需 XDG_SESSION_TYPE=x11） |
+| 无头 Xorg | `:90` 绑 GPU 0（03:00.0），root 启动；nvidia_drv.so 在 Ubuntu 专路径，xorg.conf 加 ModulePath 即可；GL 验证 = RTX 2080 Ti / OpenGL 4.6 / 595.84 |
+| CK3@Wine | P2P 包解压至 `~/ck3inst1/ck3game`（纯 ASCII 路径），`binaries/ck3.exe` 直启绕过启动器；主菜单正常渲染（GPU 显存 2.7G） |
+| 截图链路 | pyautogui.screenshot ✓（scrot 后端） |
+| 剪贴板链路 | pyperclip 写入 :90 的 X CLIPBOARD，xclip 读回 ✓（注意 xclip fork 占 selection 会让前台命令不退出，采集器轮询模式不受影响） |
+| 远程操作 | x11vnc 挂 :90 → **端口 5902**（VM 在 5901） |
+
+启动器脚本：`scripts/collect_linux_inst1.sh`（含全部环境变量）。
+
+### 待用户经 VNC 5902 完成
+1. 进游戏 → 统治者设计器/人物创建，摆到采集界面（性别按需）；
+2. 运行采集器完成按钮标定（`bash scripts/collect_linux_inst1.sh 试采目录`）；
+3. 试采 10~20 样本，对照 Windows 基线比对画质与单样本耗时。
+
+### 唯一未验证环节
+游戏内"复制 DNA"→ Wine 剪贴板 → X CLIPBOARD 的同步方向（winex11 原生支持，标定试采时自然验证）。

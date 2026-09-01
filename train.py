@@ -476,6 +476,7 @@ def main() -> int:
         sample_fraction=1.0,
         sample_ids=split_ids.get("train"),
         require_side_view=use_side_view,
+        side_dropout=float(data_config.get("side_dropout", 0.0)),
         rank=rank,
         world_size=world_size,
     )
