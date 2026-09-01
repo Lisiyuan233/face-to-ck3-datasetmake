@@ -17,7 +17,7 @@
   "train": {
     "output_dir": "runs/convnext_tiny_multiview_male_small_105865_v4_sidedrop",
     "epochs": 12,
-    "freeze_backbone_epochs": 0,
+    "freeze_backbone_epochs": 2,
     "batch_size": 16,
     "gradient_accumulation": 3,
     "num_workers": 8,
