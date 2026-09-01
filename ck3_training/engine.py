@@ -284,11 +284,15 @@ def evaluate(
     amp_mode: str,
     max_steps: int | None,
     observable_threshold: float | Sequence[float] = 0.10,
+    race_group_count: int = 0,
 ) -> dict[str, Any]:
     model.eval()
     enabled, dtype, _ = amp_settings(device, amp_mode)
     metrics = MetricAccumulator(
-        schema, device, observable_threshold=observable_threshold
+        schema,
+        device,
+        observable_threshold=observable_threshold,
+        race_group_count=race_group_count,
     )
     for step, batch in enumerate(loader):
         if max_steps is not None and step >= int(max_steps):

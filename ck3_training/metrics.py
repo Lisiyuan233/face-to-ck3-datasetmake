@@ -33,9 +33,13 @@ class MetricAccumulator:
         schema: CK3Schema,
         device: torch.device,
         observable_threshold: float | Sequence[float] = 0.10,
+        race_group_count: int = 0,
     ) -> None:
         self.schema = schema
         self.device = device
+        race_group_count = int(race_group_count)
+        if race_group_count < 0:
+            raise ValueError("race_group_count must be >= 0")
         if isinstance(observable_threshold, (int, float)):
             thresholds = [float(observable_threshold)] * schema.categorical_dim
         else:
@@ -65,8 +69,12 @@ class MetricAccumulator:
             index: torch.zeros_like(matrix)
             for index, matrix in self.confusion.items()
         }
-        self.race_abs = torch.zeros(17, dtype=torch.float64, device=device)
-        self.race_count = torch.zeros(17, dtype=torch.float64, device=device)
+        self.race_abs = torch.zeros(
+            race_group_count, dtype=torch.float64, device=device
+        )
+        self.race_count = torch.zeros(
+            race_group_count, dtype=torch.float64, device=device
+        )
         self.loss_sums: dict[str, torch.Tensor] = {}
         self.loss_batches = torch.zeros((), dtype=torch.float64, device=device)
         self.geometry_gate_sum = torch.zeros(

@@ -178,6 +178,8 @@ def _median_baseline(
     rows: list[dict[str, Any]] = []
     baseline_means: dict[str, float] = {}
     for family, names, metric_key in families:
+        if not names:
+            continue
         median = torch.quantile(train[family], 0.5, dim=0)
         baseline = (target[family] - median).abs().mean(dim=0)
         model = torch.tensor(metrics[metric_key], dtype=torch.float64)
@@ -220,9 +222,13 @@ def _median_baseline(
             )[:8],
         }
     weights = {
-        "scalar": float(selection.get("scalar_mae_weight", 0.0)),
-        "signed": float(selection["signed_mae_weight"]),
-        "strength": float(selection["strength_mae_weight"]),
+        family: weight
+        for family, weight in {
+            "scalar": float(selection.get("scalar_mae_weight", 0.0)),
+            "signed": float(selection["signed_mae_weight"]),
+            "strength": float(selection["strength_mae_weight"]),
+        }.items()
+        if weight > 0.0 and family in baseline_means
     }
     denominator = sum(weights.values())
     summary["continuous_score"] = sum(

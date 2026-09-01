@@ -353,6 +353,12 @@ def main() -> int:
     schema = load_schema(data_config["schema"])
     manifest_path = Path(data_config["manifest"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    race_groups_metadata = manifest.get("race_groups") or {}
+    if not isinstance(race_groups_metadata, dict):
+        raise RuntimeError("manifest race_groups must be an object")
+    race_group_count = int(race_groups_metadata.get("group_count") or 0)
+    if race_group_count < 0:
+        raise RuntimeError("manifest race_groups.group_count must be >= 0")
     split_index_path = data_config.get("split_index")
     split_ids: dict[str, frozenset[str]] = {}
     if split_index_path:
@@ -706,6 +712,7 @@ def main() -> int:
                     amp_mode=amp_mode,
                     max_steps=train_config.get("max_val_steps"),
                     observable_threshold=criterion.observable_thresholds(),
+                    race_group_count=race_group_count,
                 )
             score = selection_score(validation_metrics, config["selection"])
             continuous_score = continuous_selection_score(

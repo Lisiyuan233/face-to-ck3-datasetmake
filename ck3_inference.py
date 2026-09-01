@@ -266,14 +266,16 @@ class CK3Predictor:
                 if side_geometry_map is not None
                 else None,
             )
-        return {
-            "scalar": outputs["scalar"][0].float().cpu().tolist(),
+        prediction = {
             "signed": outputs["signed"][0].float().cpu().tolist(),
             "categorical_strength": outputs["categorical_strength"][0]
             .float()
             .cpu()
             .tolist(),
         }
+        if "scalar" in outputs:
+            prediction["scalar"] = outputs["scalar"][0].float().cpu().tolist()
+        return prediction
 
     def close(self) -> None:
         """Release model/device memory held by this predictor."""
@@ -317,12 +319,12 @@ def build_dna_from_prediction(
     merged = dict(template_label)
     merged["sample_id"] = "inference"
     for family, specs, key in family_specs:
-        source_values = prediction[key]
+        source_values = prediction.get(key, ())
         if len(source_values) != len(specs):
             raise ValueError(
                 f"{key} 输出维度 {len(source_values)}，schema 需要 {len(specs)}"
             )
-        values = list(template_label[key])
+        values = list(template_label.get(key, ()))
         for index, (spec, predicted) in enumerate(zip(specs, source_values)):
             field = str(spec["name"])
             field_quality = quality.get((family, field))
